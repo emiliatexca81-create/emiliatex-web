@@ -1,0 +1,202 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'emiliatexca81@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Validations
+    function isValidProduct(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+             data.category is string && (data.category == 'deportivo' || data.category == 'corporativo') &&
+             data.subcategory is string && data.subcategory.size() <= 100 &&
+             data.sku is string && data.sku.size() <= 50 &&
+             data.fabricMaterial is string && data.fabricMaterial.size() <= 150 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             (!('priceEstimate' in data) || (data.priceEstimate is string && data.priceEstimate.size() <= 100)) &&
+             (!('minQuantity' in data) || data.minQuantity is number) &&
+             (!('isFeatured' in data) || data.isFeatured is bool) &&
+             (!('inStock' in data) || data.inStock is bool) &&
+             (!('images' in data) || (data.images is list && data.images.size() <= 10)) &&
+             (!('features' in data) || (data.features is list && data.features.size() <= 20)) &&
+             (!('sizesAvailable' in data) || (data.sizesAvailable is list && data.sizesAvailable.size() <= 20));
+    }
+
+    function isValidMatch(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.tournamentName is string && data.tournamentName.size() <= 150 &&
+             data.phase is string && data.phase.size() <= 100 &&
+             data.homeAcademyName is string && data.homeAcademyName.size() <= 150 &&
+             data.awayAcademyName is string && data.awayAcademyName.size() <= 150 &&
+             data.status is string && (data.status == 'upcoming' || data.status == 'live' || data.status == 'finished') &&
+             (!('date' in data) || (data.date is string && data.date.size() <= 30)) &&
+             (!('time' in data) || (data.time is string && data.time.size() <= 30)) &&
+             (!('stadium' in data) || (data.stadium is string && data.stadium.size() <= 150)) &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+             (!('stage' in data) || (data.stage is string && data.stage.size() <= 100)) &&
+             (!('homeAcademyId' in data) || (data.homeAcademyId is string && data.homeAcademyId.size() <= 128)) &&
+             (!('awayAcademyId' in data) || (data.awayAcademyId is string && data.awayAcademyId.size() <= 128)) &&
+             (!('homeLogo' in data) || (data.homeLogo is string && data.homeLogo.size() <= 500000)) &&
+             (!('awayLogo' in data) || (data.awayLogo is string && data.awayLogo.size() <= 500000)) &&
+             (!('homeScore' in data) || data.homeScore is number) &&
+             (!('awayScore' in data) || data.awayScore is number) &&
+             (!('liveMinute' in data) || (data.liveMinute is string && data.liveMinute.size() <= 50)) &&
+             (!('mvp' in data) || (data.mvp is string && data.mvp.size() <= 200)) &&
+             (!('summary' in data) || (data.summary is string && data.summary.size() <= 2000)) &&
+             (!('referee' in data) || (data.referee is string && data.referee.size() <= 150)) &&
+             (!('lineups' in data) || data.lineups is map) &&
+             (!('events' in data) || data.events is list);
+    }
+
+    function isValidPlayer(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+             data.academyName is string && data.academyName.size() <= 150 &&
+             data.position is string && (data.position == 'Portero' || data.position == 'Defensa' || data.position == 'Centrocampista' || data.position == 'Delantero') &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+             (!('academyId' in data) || (data.academyId is string && data.academyId.size() <= 128)) &&
+             (!('number' in data) || data.number is number) &&
+             (!('goals' in data) || data.goals is number) &&
+             (!('assists' in data) || data.assists is number) &&
+             (!('yellowCards' in data) || data.yellowCards is number) &&
+             (!('redCards' in data) || data.redCards is number) &&
+             (!('matchesPlayed' in data) || data.matchesPlayed is number) &&
+             (!('mvpCount' in data) || data.mvpCount is number) &&
+             (!('age' in data) || data.age is number) &&
+             (!('photo' in data) || (data.photo is string && data.photo.size() <= 500000));
+    }
+
+    function isValidAcademy(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+             data.city is string && data.city.size() <= 100 &&
+             (!('logo' in data) || (data.logo is string && data.logo.size() <= 500000)) &&
+             (!('acronym' in data) || (data.acronym is string && data.acronym.size() <= 20)) &&
+             (!('coach' in data) || (data.coach is string && data.coach.size() <= 150)) &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+             (!('categories' in data) || (data.categories is list && data.categories.size() <= 20)) &&
+             (!('played' in data) || data.played is number) &&
+             (!('won' in data) || data.won is number) &&
+             (!('drawn' in data) || data.drawn is number) &&
+             (!('lost' in data) || data.lost is number) &&
+             (!('goalsFor' in data) || data.goalsFor is number) &&
+             (!('goalsAgainst' in data) || data.goalsAgainst is number) &&
+             (!('points' in data) || data.points is number) &&
+             (!('foundationYear' in data) || (data.foundationYear is string && data.foundationYear.size() <= 20)) &&
+             (!('primaryColor' in data) || (data.primaryColor is string && data.primaryColor.size() <= 50));
+    }
+
+    function isValidOrder(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.customerName is string && data.customerName.size() > 0 && data.customerName.size() <= 150 &&
+             data.customerPhone is string && data.customerPhone.size() > 0 && data.customerPhone.size() <= 50 &&
+             data.status is string && (data.status == 'pending' || data.status == 'in_production' || data.status == 'shipped' || data.status == 'delivered' || data.status == 'cancelled') &&
+             (!('orderNumber' in data) || (data.orderNumber is string && data.orderNumber.size() <= 60)) &&
+             (!('companyOrTeam' in data) || (data.companyOrTeam is string && data.companyOrTeam.size() <= 150)) &&
+             (!('totalEstimate' in data) || (data.totalEstimate is string && data.totalEstimate.size() <= 100)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+             (!('items' in data) || (data.items is list && data.items.size() <= 20)) &&
+             (!('whatsappMessageSent' in data) || data.whatsappMessageSent is bool);
+    }
+
+    function isValidSettings(data) {
+      return (!('whatsappNumber' in data) || (data.whatsappNumber is string && data.whatsappNumber.size() <= 50)) &&
+             (!('companyName' in data) || (data.companyName is string && data.companyName.size() <= 150));
+    }
+
+    function isValidQuiniela(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100 &&
+             (!('userPhone' in data) || (data.userPhone is string && data.userPhone.size() <= 50)) &&
+             (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 100)) &&
+             (!('totalPoints' in data) || data.totalPoints is number) &&
+             (!('predictions' in data) || data.predictions is map);
+    }
+
+    // 1. Products - Public read, Admin write
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
+      allow update: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    // 2. Matches - Public read, Admin write
+    match /matches/{matchId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(matchId) && isValidMatch(incoming());
+      allow update: if isAdmin() && isValidId(matchId) && isValidMatch(incoming());
+      allow delete: if isAdmin() && isValidId(matchId);
+    }
+
+    // 3. Players - Public read, Admin write
+    match /players/{playerId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(playerId) && isValidPlayer(incoming());
+      allow update: if isAdmin() && isValidId(playerId) && isValidPlayer(incoming());
+      allow delete: if isAdmin() && isValidId(playerId);
+    }
+
+    // 4. Academies - Public read, Admin write
+    match /academies/{academyId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(academyId) && isValidAcademy(incoming());
+      allow update: if isAdmin() && isValidId(academyId) && isValidAcademy(incoming());
+      allow delete: if isAdmin() && isValidId(academyId);
+    }
+
+    // 5. Orders - Public create, Admin read/update/delete
+    match /orders/{orderId} {
+      allow read: if isAdmin();
+      allow create: if isValidId(orderId) && isValidOrder(incoming());
+      allow update: if isAdmin() && isValidId(orderId) && isValidOrder(incoming());
+      allow delete: if isAdmin() && isValidId(orderId);
+    }
+
+    // 6. Settings - Public read, Admin write
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidId(settingId) && isValidSettings(incoming());
+    }
+
+    // 7. Admins - Admin only
+    match /admins/{adminId} {
+      allow read, write: if isAdmin() && isValidId(adminId);
+    }
+
+    // 8. Quinielas - Public read, Public create and update, Admin delete
+    match /quinielas/{quinielaId} {
+      allow read: if true;
+      allow create: if isValidId(quinielaId) && isValidQuiniela(incoming());
+      allow update: if isValidId(quinielaId) && isValidQuiniela(incoming());
+      allow delete: if isAdmin() && isValidId(quinielaId);
+    }
+  }
+}

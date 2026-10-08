@@ -1,0 +1,8 @@
+{
+  "name": "EMILIATEX - Uniformes y Torneo Élite",
+  "description": "Catálogo de uniformes deportivos y corporativos con pedidos vía WhatsApp, cobertura oficial del Torneo Élite EMILIATEX ",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

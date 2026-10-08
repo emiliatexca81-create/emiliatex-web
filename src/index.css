@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* Safe-area insets for modern smartphones (notch & home bar) */
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
+  }
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
+  }
+
+  /* Hide scrollbars for slick mobile horizontal carousels and pill tabs */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Neumorphic Dark Luxury Surfaces */
+  .neu-card {
+    background: linear-gradient(145deg, #141724, #0c0e17);
+    box-shadow: 8px 8px 22px rgba(0, 0, 0, 0.7), -5px -5px 14px rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .neu-card-gold {
+    background: linear-gradient(145deg, #191b29, #0e101a);
+    box-shadow: 10px 10px 26px rgba(0, 0, 0, 0.75), -5px -5px 16px rgba(212, 175, 55, 0.06);
+    border: 1px solid rgba(212, 175, 55, 0.3);
+  }
+
+  .neu-pressed {
+    background: #090a12;
+    box-shadow: inset 3px 3px 7px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .neu-pressed-gold {
+    background: #110e08;
+    box-shadow: inset 3px 3px 7px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(212, 175, 55, 0.1);
+    border: 1px solid rgba(212, 175, 55, 0.4);
+  }
+
+  .neu-btn-gold {
+    background: linear-gradient(135deg, #F5E59B 0%, #D4AF37 50%, #A67C11 100%);
+    box-shadow: 5px 5px 14px rgba(0, 0, 0, 0.65), -2px -2px 8px rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 243, 176, 0.4);
+    transition: all 0.18s ease-out;
+  }
+  .neu-btn-gold:active {
+    box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.6);
+    transform: scale(0.98);
+  }
+
+  .neu-btn-dark {
+    background: linear-gradient(145deg, #181a28, #0f111c);
+    box-shadow: 5px 5px 12px rgba(0, 0, 0, 0.6), -2px -2px 7px rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.18s ease-out;
+  }
+  .neu-btn-dark:active {
+    box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.65);
+    transform: scale(0.98);
+  }
+
+  /* Neo-Futuristic Cyber Accents */
+  .neo-glow-gold {
+    box-shadow: 0 0 25px rgba(212, 175, 55, 0.35), inset 0 0 15px rgba(212, 175, 55, 0.15);
+  }
+
+  .neo-glow-cyan {
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+  }
+
+  .hud-badge {
+    background: rgba(15, 18, 28, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    box-shadow: inset 0 0 10px rgba(212, 175, 55, 0.1), 0 4px 15px rgba(0, 0, 0, 0.5);
+  }
+
+  .cyber-grid {
+    background-image: radial-gradient(rgba(212, 175, 55, 0.08) 1px, transparent 1px),
+                      radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 32px 32px, 16px 16px;
+    background-position: 0 0, 16px 16px;
+  }
+
+  .hologram-line {
+    background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.6), transparent);
+  }
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+body {
+  touch-action: manipulation;
+}

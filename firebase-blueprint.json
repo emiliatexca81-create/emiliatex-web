@@ -1,0 +1,193 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Textile and uniform products for athletic and corporate clients",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "enum": ["deportivo", "corporativo"] },
+        "subcategory": { "type": "string", "maxLength": 100 },
+        "sku": { "type": "string", "maxLength": 50 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "images": { "type": "array" },
+        "fabricMaterial": { "type": "string", "maxLength": 150 },
+        "features": { "type": "array" },
+        "sizesAvailable": { "type": "array" },
+        "minQuantity": { "type": "number" },
+        "priceEstimate": { "type": "string", "maxLength": 100 },
+        "isFeatured": { "type": "boolean" },
+        "inStock": { "type": "boolean" }
+      },
+      "required": ["id", "name", "category", "subcategory", "sku", "fabricMaterial"]
+    },
+    "TournamentMatch": {
+      "title": "TournamentMatch",
+      "description": "Football match in Torneo Elite EMILIATEX",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "tournamentName": { "type": "string", "maxLength": 150 },
+        "phase": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string", "maxLength": 30 },
+        "time": { "type": "string", "maxLength": 30 },
+        "stadium": { "type": "string", "maxLength": 150 },
+        "homeAcademyId": { "type": "string", "maxLength": 128 },
+        "homeAcademyName": { "type": "string", "maxLength": 150 },
+        "homeLogo": { "type": "string", "maxLength": 1000 },
+        "homeScore": { "type": "number" },
+        "awayAcademyId": { "type": "string", "maxLength": 128 },
+        "awayAcademyName": { "type": "string", "maxLength": 150 },
+        "awayLogo": { "type": "string", "maxLength": 1000 },
+        "awayScore": { "type": "number" },
+        "status": { "type": "string", "enum": ["upcoming", "live", "finished"] },
+        "liveMinute": { "type": "string", "maxLength": 50 },
+        "mvp": { "type": "string", "maxLength": 150 },
+        "summary": { "type": "string", "maxLength": 1000 },
+        "category": { "type": "string", "maxLength": 100 },
+        "stage": { "type": "string", "maxLength": 100 },
+        "referee": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["id", "tournamentName", "phase", "homeAcademyName", "awayAcademyName", "status"]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "Football academy registered player",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "number": { "type": "number" },
+        "position": { "type": "string", "enum": ["Portero", "Defensa", "Centrocampista", "Delantero"] },
+        "academyId": { "type": "string", "maxLength": 128 },
+        "academyName": { "type": "string", "maxLength": 150 },
+        "goals": { "type": "number" },
+        "assists": { "type": "number" },
+        "yellowCards": { "type": "number" },
+        "redCards": { "type": "number" },
+        "photo": { "type": "string", "maxLength": 1000 },
+        "matchesPlayed": { "type": "number" },
+        "mvpCount": { "type": "number" },
+        "age": { "type": "number" }
+      },
+      "required": ["id", "name", "academyName", "position"]
+    },
+    "Academy": {
+      "title": "Academy",
+      "description": "Participating football academy or club",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "acronym": { "type": "string", "maxLength": 20 },
+        "logo": { "type": "string", "maxLength": 1000 },
+        "city": { "type": "string", "maxLength": 100 },
+        "coach": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "maxLength": 100 },
+        "categories": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "played": { "type": "number" },
+        "won": { "type": "number" },
+        "drawn": { "type": "number" },
+        "lost": { "type": "number" },
+        "goalsFor": { "type": "number" },
+        "goalsAgainst": { "type": "number" },
+        "points": { "type": "number" },
+        "foundationYear": { "type": "string", "maxLength": 20 },
+        "primaryColor": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "city"]
+    },
+    "OrderQuotation": {
+      "title": "OrderQuotation",
+      "description": "Customer order or quotation request received via WhatsApp or web",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "orderNumber": { "type": "string", "maxLength": 50 },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "customerPhone": { "type": "string", "maxLength": 50 },
+        "companyOrTeam": { "type": "string", "maxLength": 150 },
+        "city": { "type": "string", "maxLength": 100 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 150 },
+        "productSku": { "type": "string", "maxLength": 50 },
+        "productCategory": { "type": "string", "maxLength": 50 },
+        "quantity": { "type": "number" },
+        "customizationType": { "type": "string", "maxLength": 100 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["pending", "in_production", "shipped", "delivered", "cancelled"] }
+      },
+      "required": ["id", "customerName", "customerPhone", "quantity", "status"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Global application configuration including WhatsApp reception phone",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "whatsappNumber": { "type": "string", "maxLength": 50 },
+        "companyName": { "type": "string", "maxLength": 150 },
+        "emailContact": { "type": "string", "maxLength": 150 },
+        "address": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["whatsappNumber", "companyName"]
+    },
+    "Quiniela": {
+      "title": "Quiniela",
+      "description": "User prediction sheet for EMILIATEX tournament matches to accumulate points",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userPhone": { "type": "string", "maxLength": 50 },
+        "userEmail": { "type": "string", "maxLength": 100 },
+        "totalPoints": { "type": "number" },
+        "exactHitsCount": { "type": "number" },
+        "outcomeHitsCount": { "type": "number" },
+        "predictions": { "type": "object" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "userName"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Public catalog of uniforms and garments. Managed by admin."
+    },
+    "/matches/{matchId}": {
+      "schema": "TournamentMatch",
+      "description": "Public tournament matches, schedules, scores and stats. Managed by admin."
+    },
+    "/players/{playerId}": {
+      "schema": "Player",
+      "description": "Public player roster and individual statistics. Managed by admin."
+    },
+    "/academies/{academyId}": {
+      "schema": "Academy",
+      "description": "Public academy standings and club profiles. Managed by admin."
+    },
+    "/orders/{orderId}": {
+      "schema": "OrderQuotation",
+      "description": "Private orders created by customers; read/managed exclusively by admin."
+    },
+    "/settings/{settingId}": {
+      "schema": "AppSettings",
+      "description": "App settings readable publicly, writable only by admin."
+    },
+    "/admins/{adminId}": {
+      "schema": "AppSettings",
+      "description": "Registered administrator accounts."
+    },
+    "/quinielas/{quinielaId}": {
+      "schema": "Quiniela",
+      "description": "Public community predictions and leaderboard for Torneo Elite EMILIATEX."
+    }
+  }
+}
