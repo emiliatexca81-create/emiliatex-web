@@ -3,13 +3,24 @@ import { EmiliatexLogo } from './EmiliatexLogo';
 import { MessageCircle, Trophy, Shirt, Shield, MapPin, Mail, Phone, Heart } from 'lucide-react';
 import { NavPage } from './Navbar';
 import { formatWhatsAppLink, getSettings } from '../services/storage';
+import { AppSettings } from '../types';
 
 interface FooterProps {
   onNavigate: (page: NavPage) => void;
+  settings?: AppSettings;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
-  const settings = getSettings();
+export const Footer: React.FC<FooterProps> = ({ onNavigate, settings: propSettings }) => {
+  const currentSettings = propSettings || getSettings();
+  const settings = {
+    ...currentSettings,
+    emailContact: currentSettings.emailContact && currentSettings.emailContact !== 'contacto@emiliatex.com'
+      ? currentSettings.emailContact
+      : 'emiliatexca81@gmail.com',
+    address: currentSettings.address && currentSettings.address !== 'Zona Industrial Textil, Medellín / Bogotá, Colombia'
+      ? currentSettings.address
+      : 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela'
+  };
 
   const handleWhatsApp = () => {
     const url = formatWhatsAppLink(

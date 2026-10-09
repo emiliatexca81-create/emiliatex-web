@@ -353,7 +353,20 @@ export async function deleteOrder(id: string): Promise<OrderQuotation[]> {
 // ---------------- SETTINGS ----------------
 
 export function getSettings(): AppSettings {
-  return getItem<AppSettings>(KEYS.SETTINGS, initialSettings);
+  const current = getItem<AppSettings>(KEYS.SETTINGS, initialSettings);
+  let changed = false;
+  if (!current.emailContact || current.emailContact === 'contacto@emiliatex.com') {
+    current.emailContact = 'emiliatexca81@gmail.com';
+    changed = true;
+  }
+  if (!current.address || current.address === 'Zona Industrial Textil, Medellín / Bogotá, Colombia') {
+    current.address = 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela';
+    changed = true;
+  }
+  if (changed) {
+    setItem(KEYS.SETTINGS, current);
+  }
+  return current;
 }
 
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {

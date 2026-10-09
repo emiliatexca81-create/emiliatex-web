@@ -245,7 +245,7 @@ function AppContent() {
       </main>
 
       {/* Footer */}
-      <Footer onNavigate={handleNavigate} />
+      <Footer onNavigate={handleNavigate} settings={settings} />
 
       {/* Product Quote Modal */}
       {quoteProduct && (

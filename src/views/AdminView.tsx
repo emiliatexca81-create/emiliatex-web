@@ -50,7 +50,11 @@ import {
   Building2,
   MapPin,
   User,
-  Hash
+  Hash,
+  Cloud,
+  Image as ImageIcon,
+  Folder,
+  CheckCircle2
 } from 'lucide-react';
 import { 
   saveProduct, 
@@ -69,7 +73,12 @@ import {
   formatWhatsAppLink 
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
-import { uploadFileToStorage } from '../services/firebase';
+import { 
+  uploadFileToStorage, 
+  testStorageConnection, 
+  STORAGE_BUCKET,
+  StorageUploadProgress 
+} from '../services/firebase';
 import { MatchLineupModal } from '../components/MatchLineupModal';
 
 export const DEFAULT_ACADEMY_CATEGORIES: TournamentCategory[] = [
@@ -118,6 +127,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const { currentUser, isAdmin, loading: authLoading, loginWithGoogle, logout, authError } = useAuth();
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ [target: string]: { percent: number; status: string } }>({});
+  const [storageTestResult, setStorageTestResult] = useState<{
+    success: boolean;
+    message: string;
+    latencyMs: number;
+    bucket: string;
+  } | null>(null);
+  const [isTestingStorage, setIsTestingStorage] = useState(false);
   const [syncingFirestore, setSyncingFirestore] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
 
@@ -204,15 +221,44 @@ export const AdminView: React.FC<AdminViewProps> = ({
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'product' | 'matchHome' | 'matchAway' | 'player' | 'academy') => {
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>, 
+    target: 'product' | 'productGallery' | 'matchHome' | 'matchAway' | 'player' | 'academy'
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const folderMap: Record<string, string> = {
+      product: 'catalog',
+      productGallery: 'catalog',
+      academy: 'teams',
+      player: 'players',
+      matchHome: 'matches',
+      matchAway: 'matches',
+    };
+    const folder = folderMap[target] || 'uploads';
+
     try {
       setUploadingTarget(target);
-      const downloadUrl = await uploadFileToStorage(file, target);
+      setUploadProgress(prev => ({
+        ...prev,
+        [target]: { percent: 15, status: 'Iniciando subida a Firebase Storage...' }
+      }));
+
+      const downloadUrl = await uploadFileToStorage(file, {
+        folder,
+        onProgress: (p) => {
+          setUploadProgress(prev => ({
+            ...prev,
+            [target]: { percent: p.percent, status: p.status }
+          }));
+        }
+      });
+
       if (target === 'product') {
         setProductForm(prev => ({ ...prev, images: [downloadUrl, ...(prev.images || []).slice(1)] }));
+      } else if (target === 'productGallery') {
+        setProductForm(prev => ({ ...prev, images: [...(prev.images || []), downloadUrl] }));
       } else if (target === 'matchHome') {
         setMatchForm(prev => ({ ...prev, homeLogo: downloadUrl }));
       } else if (target === 'matchAway') {
@@ -222,12 +268,68 @@ export const AdminView: React.FC<AdminViewProps> = ({
       } else if (target === 'academy') {
         setAcademyForm(prev => ({ ...prev, logo: downloadUrl }));
       }
-      showToast('¡Imagen procesada y asignada exitosamente!', 'success');
+
+      showToast(`¡Archivo subido exitosamente a Firebase Storage (${folder}/)!`, 'success');
     } catch (err: any) {
       console.error('Error al procesar archivo:', err);
       showToast('Error al procesar archivo: ' + (err?.message || 'Intente con otra imagen'), 'error');
     } finally {
       setUploadingTarget(null);
+      setTimeout(() => {
+        setUploadProgress(prev => {
+          const next = { ...prev };
+          delete next[target];
+          return next;
+        });
+      }, 3000);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveProductImage = (indexToRemove: number) => {
+    setProductForm(prev => {
+      const filtered = (prev.images || []).filter((_, idx) => idx !== indexToRemove);
+      return {
+        ...prev,
+        images: filtered.length > 0 ? filtered : ['']
+      };
+    });
+    showToast('Imagen retirada de la lista de la prenda', 'info');
+  };
+
+  const handleSetPrimaryProductImage = (indexToPrimary: number) => {
+    setProductForm(prev => {
+      const list = [...(prev.images || [])];
+      const selected = list.splice(indexToPrimary, 1)[0];
+      if (selected) {
+        list.unshift(selected);
+      }
+      return { ...prev, images: list };
+    });
+    showToast('Imagen seleccionada como portada principal', 'success');
+  };
+
+  const handleTestStorage = async () => {
+    setIsTestingStorage(true);
+    setStorageTestResult(null);
+    try {
+      const res = await testStorageConnection();
+      setStorageTestResult(res);
+      if (res.success) {
+        showToast(res.message, 'success');
+      } else {
+        showToast(res.message, 'error');
+      }
+    } catch (err: any) {
+      setStorageTestResult({
+        success: false,
+        bucket: STORAGE_BUCKET,
+        message: err?.message || 'Error al conectar con Firebase Storage',
+        latencyMs: 0
+      });
+      showToast('Error al conectar con Storage: ' + (err?.message || 'Fallo de conexión'), 'error');
+    } finally {
+      setIsTestingStorage(false);
     }
   };
 
@@ -963,6 +1065,104 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </div>
 
             </div>
+
+            {/* Firebase Storage Status & Cloud Directories Control */}
+            <div className="rounded-3xl neu-card-gold p-6 sm:p-7 border border-[#D4AF37]/40 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0">
+                    <Cloud className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-bold text-white font-cinzel">
+                        Firebase Storage Configurado
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full neu-pressed text-emerald-400 text-[10px] font-mono font-bold border border-emerald-500/30">
+                        ● ACTIVO
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300">
+                      Bucket Cloud: <span className="font-mono text-amber-300">{STORAGE_BUCKET}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestStorage}
+                  disabled={isTestingStorage}
+                  className="px-4 py-2.5 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md active:scale-95"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingStorage ? 'animate-spin' : ''}`} />
+                  <span>{isTestingStorage ? 'Probando Conexión...' : 'Probar Conexión con Storage'}</span>
+                </button>
+              </div>
+
+              {/* Test Result Message */}
+              {storageTestResult && (
+                <div className={`p-3.5 rounded-2xl text-xs flex items-center gap-2.5 ${
+                  storageTestResult.success 
+                    ? 'neu-pressed text-emerald-300 border border-emerald-500/30' 
+                    : 'neu-pressed text-amber-300 border border-amber-500/30'
+                }`}>
+                  {storageTestResult.success ? (
+                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  )}
+                  <span className="flex-1 font-medium">{storageTestResult.message}</span>
+                  {storageTestResult.latencyMs > 0 && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md neu-card text-slate-300">
+                      {storageTestResult.latencyMs} ms
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Storage Structure Folders Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                <div className="p-3.5 rounded-2xl neu-pressed flex items-center gap-3 border border-white/5">
+                  <div className="p-2 rounded-xl neu-card text-amber-300">
+                    <Shirt className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white font-mono">catalog/</p>
+                    <p className="text-[11px] text-slate-400 truncate">Prendas y fotos del catálogo</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl neu-pressed flex items-center gap-3 border border-white/5">
+                  <div className="p-2 rounded-xl neu-card text-blue-300">
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white font-mono">teams/</p>
+                    <p className="text-[11px] text-slate-400 truncate">Escudos oficiales de clubes</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl neu-pressed flex items-center gap-3 border border-white/5">
+                  <div className="p-2 rounded-xl neu-card text-emerald-300">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white font-mono">players/</p>
+                    <p className="text-[11px] text-slate-400 truncate">Fotos de perfil de jugadores</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl neu-pressed flex items-center gap-3 border border-white/5">
+                  <div className="p-2 rounded-xl neu-card text-purple-300">
+                    <Trophy className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white font-mono">matches/</p>
+                    <p className="text-[11px] text-slate-400 truncate">Logos e insignias de partidos</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1157,33 +1357,140 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </div>
 
-              <div className="md:col-span-2 space-y-2">
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Imagen de la Prenda:</label>
+              {/* Product Images & Gallery Section with Firebase Storage */}
+              <div className="md:col-span-2 space-y-3.5 p-4 sm:p-5 rounded-2xl neu-pressed border border-white/5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-[#D4AF37]" />
+                    <span>Fotos de la Prenda (Firebase Storage • carpeta catalog/)</span>
+                  </label>
+                  <span className="text-[11px] text-amber-300 font-mono">
+                    {(productForm.images || []).filter(Boolean).length} foto(s) registrada(s)
+                  </span>
+                </div>
+
+                {/* Upload action buttons */}
                 <div className="flex flex-col sm:flex-row gap-2.5">
-                  <input
-                    type="url"
-                    required
-                    value={productForm.images?.[0] || ''}
-                    onChange={e => setProductForm({ ...productForm, images: [e.target.value] })}
-                    placeholder="https://images.unsplash.com/... o sube a Storage"
-                    className="flex-1 px-4 py-3 rounded-2xl neu-pressed text-white text-xs font-mono border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all"
-                  />
-                  <label className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl neu-btn-gold text-black text-xs font-extrabold uppercase tracking-wider cursor-pointer shrink-0 shadow-md active:scale-95">
+                  <label className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider cursor-pointer shadow-md active:scale-95 transition-all">
                     <UploadCloud className="w-4 h-4" />
-                    <span>{uploadingTarget === 'product' ? 'Subiendo...' : 'Subir a Storage'}</span>
+                    <span>{uploadingTarget === 'product' ? 'Subiendo Portada...' : 'Subir Foto Principal a Storage'}</span>
                     <input
                       type="file"
                       accept="image/*"
-                      disabled={uploadingTarget === 'product'}
+                      disabled={uploadingTarget === 'product' || uploadingTarget === 'productGallery'}
                       className="hidden"
                       onChange={e => handleFileUpload(e, 'product')}
                     />
                   </label>
+
+                  <label className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-2xl neu-btn-dark text-amber-300 hover:text-white text-xs font-extrabold uppercase tracking-wider cursor-pointer shadow-md active:scale-95 transition-all border border-[#D4AF37]/30">
+                    <Plus className="w-4 h-4 text-[#D4AF37]" />
+                    <span>{uploadingTarget === 'productGallery' ? 'Subiendo...' : 'Agregar Otra Foto a la Galería'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploadingTarget === 'product' || uploadingTarget === 'productGallery'}
+                      className="hidden"
+                      onChange={e => handleFileUpload(e, 'productGallery')}
+                    />
+                  </label>
                 </div>
-                {productForm.images?.[0] && (
-                  <div className="flex items-center gap-3 p-3 rounded-2xl neu-pressed border border-white/5">
-                    <img src={productForm.images[0]} alt="Vista previa" className="w-12 h-12 rounded-xl object-cover border border-white/10 shadow" />
-                    <span className="text-xs text-slate-400 truncate flex-1 font-mono">{productForm.images[0]}</span>
+
+                {/* Upload progress indicator */}
+                {(uploadProgress['product'] || uploadProgress['productGallery']) && (
+                  <div className="space-y-1.5 p-3 rounded-xl neu-card border border-amber-400/30">
+                    <div className="flex items-center justify-between text-xs text-amber-300 font-mono">
+                      <span>{uploadProgress['product']?.status || uploadProgress['productGallery']?.status}</span>
+                      <span className="font-bold">{uploadProgress['product']?.percent || uploadProgress['productGallery']?.percent}%</span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-300"
+                        style={{ width: `${uploadProgress['product']?.percent || uploadProgress['productGallery']?.percent || 0}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Direct URL input fallback */}
+                <div className="space-y-1">
+                  <span className="text-[11px] text-slate-400">O pegar enlace web directo de la foto principal:</span>
+                  <input
+                    type="url"
+                    value={productForm.images?.[0] || ''}
+                    onChange={e => setProductForm({ ...productForm, images: [e.target.value, ...(productForm.images || []).slice(1)] })}
+                    placeholder="https://... (URL de la imagen principal)"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-xs font-mono placeholder:text-slate-500 focus:outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+
+                {/* Gallery preview strip */}
+                {productForm.images && productForm.images.filter(Boolean).length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Galería de la Prenda:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {productForm.images.filter(Boolean).map((imgUrl, idx) => {
+                        const isCloud = imgUrl.includes('firebasestorage.googleapis.com');
+                        const isDataUrl = imgUrl.startsWith('data:image');
+                        const isPrimary = idx === 0;
+
+                        return (
+                          <div 
+                            key={`${imgUrl.slice(0, 30)}-${idx}`} 
+                            className={`p-2.5 rounded-xl neu-card relative flex items-center gap-3 border transition-all ${
+                              isPrimary ? 'border-[#D4AF37] shadow-[0_0_15px_rgba(212,175,55,0.2)]' : 'border-white/10'
+                            }`}
+                          >
+                            <img 
+                              src={imgUrl} 
+                              alt={`Prenda ${idx + 1}`} 
+                              className="w-14 h-14 rounded-lg object-cover bg-black shrink-0 border border-white/10 shadow" 
+                            />
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {isPrimary ? (
+                                  <span className="px-2 py-0.5 rounded-md bg-[#D4AF37] text-black text-[9px] font-black uppercase tracking-wider">
+                                    ★ Portada
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetPrimaryProductImage(idx)}
+                                    className="px-2 py-0.5 rounded-md neu-btn-dark text-amber-300 text-[9px] font-bold uppercase hover:text-white cursor-pointer"
+                                  >
+                                    Hacer Portada
+                                  </button>
+                                )}
+
+                                {isCloud ? (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                    Cloud Storage
+                                  </span>
+                                ) : isDataUrl ? (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    Optimizado
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-500/20 text-slate-300">
+                                    Web
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 truncate font-mono">{imgUrl}</p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveProductImage(idx)}
+                              className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-all cursor-pointer active:scale-95"
+                              title="Eliminar foto"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1404,7 +1711,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Equipo Local:</label>
                 <select
                   value={matchForm.homeAcademyId}
@@ -1423,9 +1730,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <option key={a.id} value={a.id} className="bg-[#12141f]">{a.name} ({a.city})</option>
                   ))}
                 </select>
+                <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl neu-card border border-white/5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <img src={matchForm.homeLogo || 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=100'} alt="Escudo Local" className="w-8 h-8 rounded-lg object-contain bg-black/50 p-1 border border-white/10 shrink-0" />
+                    <span className="text-xs text-slate-300 truncate font-semibold">{matchForm.homeAcademyName || 'Equipo Local'}</span>
+                  </div>
+                  <label className="px-3 py-1.5 rounded-xl neu-btn-gold text-black text-[11px] font-black uppercase cursor-pointer shrink-0 shadow active:scale-95 flex items-center gap-1.5">
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>{uploadingTarget === 'matchHome' ? 'Subiendo...' : 'Subir Escudo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploadingTarget === 'matchHome'}
+                      className="hidden"
+                      onChange={e => handleFileUpload(e, 'matchHome')}
+                    />
+                  </label>
+                </div>
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Equipo Visitante:</label>
                 <select
                   value={matchForm.awayAcademyId}
@@ -1444,6 +1768,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <option key={a.id} value={a.id} className="bg-[#12141f]">{a.name} ({a.city})</option>
                   ))}
                 </select>
+                <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl neu-card border border-white/5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <img src={matchForm.awayLogo || 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=100'} alt="Escudo Visitante" className="w-8 h-8 rounded-lg object-contain bg-black/50 p-1 border border-white/10 shrink-0" />
+                    <span className="text-xs text-slate-300 truncate font-semibold">{matchForm.awayAcademyName || 'Equipo Visitante'}</span>
+                  </div>
+                  <label className="px-3 py-1.5 rounded-xl neu-btn-gold text-black text-[11px] font-black uppercase cursor-pointer shrink-0 shadow active:scale-95 flex items-center gap-1.5">
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>{uploadingTarget === 'matchAway' ? 'Subiendo...' : 'Subir Escudo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploadingTarget === 'matchAway'}
+                      className="hidden"
+                      onChange={e => handleFileUpload(e, 'matchAway')}
+                    />
+                  </label>
+                </div>
               </div>
 
               {/* Marcador */}
@@ -1769,19 +2110,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </div>
 
-              <div className="md:col-span-2 space-y-2">
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Foto del Jugador:</label>
+              <div className="md:col-span-2 space-y-2 p-4 rounded-2xl neu-pressed border border-white/5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <label className="block text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <User className="w-4 h-4 text-[#D4AF37]" />
+                    <span>Foto de Perfil del Jugador (Firebase Storage • players/)</span>
+                  </label>
+                  {playerForm.photo?.includes('firebasestorage.googleapis.com') ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                      Cloud Storage (players/)
+                    </span>
+                  ) : playerForm.photo?.startsWith('data:image') ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Optimizado
+                    </span>
+                  ) : null}
+                </div>
+
                 <div className="flex flex-col sm:flex-row gap-2.5">
                   <input
                     type="url"
                     value={playerForm.photo || ''}
                     onChange={e => setPlayerForm({ ...playerForm, photo: e.target.value })}
-                    placeholder="https://images.unsplash.com/... o sube a Storage"
-                    className="flex-1 px-4 py-3 rounded-2xl neu-pressed text-white text-xs font-mono border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all"
+                    placeholder="https://... o presiona Subir a Storage"
+                    className="flex-1 px-4 py-3 rounded-2xl bg-black/40 border border-white/10 text-white text-xs font-mono focus:border-[#D4AF37] focus:outline-none transition-all"
                   />
-                  <label className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl neu-btn-gold text-black text-xs font-extrabold uppercase tracking-wider cursor-pointer shrink-0 shadow-md active:scale-95">
+                  <label className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider cursor-pointer shrink-0 shadow-md active:scale-95">
                     <UploadCloud className="w-4 h-4" />
-                    <span>{uploadingTarget === 'player' ? 'Subiendo...' : 'Subir a Storage'}</span>
+                    <span>{uploadingTarget === 'player' ? 'Subiendo Foto...' : 'Subir a Storage'}</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -1791,10 +2147,30 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     />
                   </label>
                 </div>
+
+                {/* Progress indicator */}
+                {uploadProgress['player'] && (
+                  <div className="space-y-1.5 p-2.5 rounded-xl neu-card border border-amber-400/30">
+                    <div className="flex items-center justify-between text-xs text-amber-300 font-mono">
+                      <span>{uploadProgress['player'].status}</span>
+                      <span className="font-bold">{uploadProgress['player'].percent}%</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-300"
+                        style={{ width: `${uploadProgress['player'].percent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {playerForm.photo && (
-                  <div className="flex items-center gap-3 p-3 rounded-2xl neu-pressed border border-white/5">
-                    <img src={playerForm.photo} alt="Foto jugador" className="w-12 h-12 rounded-full object-cover border border-[#D4AF37] shadow" />
-                    <span className="text-xs text-slate-400 truncate flex-1 font-mono">{playerForm.photo}</span>
+                  <div className="flex items-center gap-3 p-3 rounded-2xl neu-card border border-white/5">
+                    <img src={playerForm.photo} alt="Foto jugador" className="w-12 h-12 rounded-full object-cover border-2 border-[#D4AF37] shadow-lg shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-white truncate font-cinzel">{playerForm.name || 'Vista previa'}</p>
+                      <p className="text-[10px] text-slate-400 truncate font-mono">{playerForm.photo}</p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2066,14 +2442,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </div>
 
-              {/* Club Badge / Logo Section - Neumorphic Visual Preview */}
+              {/* Club Badge / Logo Section - Firebase Storage teams/ */}
               <div className="p-4 sm:p-5 rounded-2xl neu-pressed space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                   <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
                     <Shield className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Escudo / Emblema Oficial del Club</span>
+                    <span>Escudo / Emblema Oficial del Club (Firebase Storage • teams/)</span>
                   </label>
-                  <span className="text-[10px] text-slate-400 font-mono">PNG / JPG Recomendado</span>
+                  <div className="flex items-center gap-2">
+                    {academyForm.logo?.includes('firebasestorage.googleapis.com') ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        Cloud Storage (teams/)
+                      </span>
+                    ) : academyForm.logo?.startsWith('data:image') ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Optimizado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 font-mono">PNG / JPG Recomendado</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
@@ -2101,14 +2489,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           type="url"
                           value={academyForm.logo || ''}
                           onChange={e => setAcademyForm({ ...academyForm, logo: e.target.value })}
-                          placeholder="https://images.unsplash.com/... o sube archivo"
+                          placeholder="https://... o presiona Subir a Storage"
                           className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-xs font-mono placeholder:text-slate-500 focus:outline-none focus:border-[#D4AF37]"
                         />
                       </div>
 
-                      <label className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl neu-btn-gold text-black text-xs font-extrabold uppercase tracking-wider cursor-pointer shrink-0">
+                      <label className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl neu-btn-gold text-black text-xs font-extrabold uppercase tracking-wider cursor-pointer shrink-0 shadow-md active:scale-95">
                         <UploadCloud className="w-4 h-4" />
-                        <span>{uploadingTarget === 'academy' ? 'Subiendo...' : 'Subir Escudo'}</span>
+                        <span>{uploadingTarget === 'academy' ? 'Subiendo Escudo...' : 'Subir a Storage'}</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -2119,8 +2507,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       </label>
                     </div>
 
+                    {/* Progress indicator */}
+                    {uploadProgress['academy'] && (
+                      <div className="space-y-1.5 p-2.5 rounded-xl neu-card border border-amber-400/30">
+                        <div className="flex items-center justify-between text-xs text-amber-300 font-mono">
+                          <span>{uploadProgress['academy'].status}</span>
+                          <span className="font-bold">{uploadProgress['academy'].percent}%</span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-300"
+                            style={{ width: `${uploadProgress['academy'].percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Sube la insignia en alta resolución o ingresa un enlace directo. Se sincronizará automáticamente con las tablas de posiciones y los partidos del torneo.
+                      Sube la insignia oficial en alta resolución (PNG con transparencia o JPG). Se almacena en la nube de Firebase Storage y se refleja automáticamente en la tabla de posiciones, fixture y quiniela.
                     </p>
                   </div>
                 </div>

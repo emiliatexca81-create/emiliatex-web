@@ -4,8 +4,8 @@ export const initialSettings: AppSettings = {
   whatsappNumber: '573124567890',
   companyName: 'EMILIATEX Confecciones & Uniformes',
   tournamentName: 'Torneo Élite EMILIATEX 2026',
-  emailContact: 'contacto@emiliatex.com',
-  address: 'Zona Industrial Textil, Medellín / Bogotá, Colombia'
+  emailContact: 'emiliatexca81@gmail.com',
+  address: 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela'
 };
 
 export const initialAcademies: Academy[] = [
