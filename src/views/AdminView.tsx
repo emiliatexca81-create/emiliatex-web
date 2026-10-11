@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Product, 
   TournamentMatch, 
@@ -10,7 +10,9 @@ import {
   TOURNAMENT_CATEGORIES,
   TournamentCategory,
   MATCH_STAGES,
-  MatchStage
+  MatchStage,
+  QuinielaEntry,
+  MatchPredictionScore
 } from '../types';
 import { 
   Shirt, 
@@ -54,7 +56,9 @@ import {
   Cloud,
   Image as ImageIcon,
   Folder,
-  CheckCircle2
+  CheckCircle2,
+  Award,
+  Eye
 } from 'lucide-react';
 import { 
   saveProduct, 
@@ -71,7 +75,14 @@ import {
   resetSampleData,
   seedInitialFirestoreData,
   formatWhatsAppLink,
-  deleteAllMatches 
+  deleteAllMatches,
+  getQuinielas,
+  deleteQuiniela,
+  deleteAllQuinielas,
+  deleteSampleQuinielas,
+  recalculateAllQuinielas,
+  subscribeQuinielas,
+  evaluateMatchPrediction
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
 import { 
@@ -97,11 +108,12 @@ interface AdminViewProps {
   academies: Academy[];
   orders: OrderQuotation[];
   settings: AppSettings;
+  quinielas?: QuinielaEntry[];
   onRefresh: () => void;
   initialSection?: AdminSection;
 }
 
-type AdminSection = 'menu' | 'add_product' | 'add_match' | 'add_player' | 'add_academy' | 'view_orders';
+type AdminSection = 'menu' | 'add_product' | 'add_match' | 'add_player' | 'add_academy' | 'view_orders' | 'view_quinielas';
 
 export const AdminView: React.FC<AdminViewProps> = ({
   products,
@@ -110,6 +122,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   academies,
   orders,
   settings,
+  quinielas: propQuinielas,
   onRefresh,
   initialSection
 }) => {
@@ -117,7 +130,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (initialSection) return initialSection;
     const params = new URLSearchParams(window.location.search);
     const sec = params.get('adminSection') as AdminSection;
-    if (sec && ['add_product', 'add_match', 'add_player', 'add_academy', 'view_orders'].includes(sec)) {
+    if (sec && ['add_product', 'add_match', 'add_player', 'add_academy', 'view_orders', 'view_quinielas'].includes(sec)) {
       return sec;
     }
     return 'menu';
@@ -125,6 +138,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [waConfigPhone, setWaConfigPhone] = useState(settings.whatsappNumber);
+  const [logoConfigUrl, setLogoConfigUrl] = useState(settings.companyLogoUrl || 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d');
+  const [companyNameConfig, setCompanyNameConfig] = useState(settings.companyName || 'EMILIATEX Confecciones & Uniformes');
+  const [emailConfig, setEmailConfig] = useState(settings.emailContact || 'emiliatexca81@gmail.com');
+  const [addressConfig, setAddressConfig] = useState(settings.address || 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela');
 
   const { currentUser, isAdmin, loading: authLoading, loginWithGoogle, logout, authError } = useAuth();
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
@@ -142,9 +159,36 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Lineups Modal State
   const [lineupModalMatch, setLineupModalMatch] = useState<TournamentMatch | null>(null);
 
+  // Quiniela Management States
+  const [quinielas, setQuinielas] = useState<QuinielaEntry[]>(() => propQuinielas || getQuinielas());
+  const [quinielaSearch, setQuinielaSearch] = useState('');
+  const [inspectingQuiniela, setInspectingQuiniela] = useState<QuinielaEntry | null>(null);
+  const [isRecalculatingQuinielas, setIsRecalculatingQuinielas] = useState(false);
+
+  useEffect(() => {
+    if (propQuinielas) {
+      setQuinielas(propQuinielas);
+    } else {
+      setQuinielas(getQuinielas());
+    }
+    const unsub = subscribeQuinielas((list) => {
+      setQuinielas(list);
+    });
+    return () => unsub();
+  }, [propQuinielas]);
+
+  const filteredQuinielas = useMemo(() => {
+    if (!quinielaSearch.trim()) return quinielas;
+    const q = quinielaSearch.toLowerCase().trim();
+    return quinielas.filter(item => 
+      item.userName.toLowerCase().includes(q) ||
+      (item.userPhone && item.userPhone.toLowerCase().includes(q))
+    );
+  }, [quinielas, quinielaSearch]);
+
   // In-App Confirmation Modal (solves confirm() blocked in iframe)
   const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
-    type: 'academy' | 'match' | 'player' | 'product' | 'order' | 'all_matches';
+    type: 'academy' | 'match' | 'player' | 'product' | 'order' | 'all_matches' | 'quiniela' | 'all_quinielas' | 'sample_quinielas';
     id: string;
     name: string;
     extraInfo?: string;
@@ -158,6 +202,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const handleRecalculatePoints = async () => {
+    setIsRecalculatingQuinielas(true);
+    try {
+      const updated = await recalculateAllQuinielas(matches);
+      setQuinielas(updated);
+      showToast(`Puntuación de ${updated.length} participantes recalculada con éxito según los partidos finalizados`, 'success');
+    } catch (err: any) {
+      console.error('Error al recalcular:', err);
+      showToast('Error al recalcular puntuaciones: ' + (err?.message || 'Error inesperado'), 'error');
+    } finally {
+      setIsRecalculatingQuinielas(false);
+    }
   };
 
   // Section / Form Refs for smooth navigation when editing
@@ -189,6 +247,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
       } else if (type === 'order') {
         deleteOrder(id);
         showToast(`Pedido "${name}" eliminado correctamente`, 'success');
+      } else if (type === 'quiniela') {
+        const updated = await deleteQuiniela(id);
+        setQuinielas(updated);
+        showToast(`Registro de quiniela de "${name}" eliminado de forma definitiva`, 'success');
+      } else if (type === 'sample_quinielas') {
+        const updated = await deleteSampleQuinielas();
+        setQuinielas(updated);
+        showToast(`Registros de prueba de la quiniela eliminados de forma definitiva`, 'success');
+      } else if (type === 'all_quinielas') {
+        const updated = await deleteAllQuinielas();
+        setQuinielas(updated);
+        showToast(`Todos los registros de la quiniela han sido eliminados de forma definitiva`, 'success');
       }
       onRefresh();
       setConfirmDeleteModal(null);
@@ -736,11 +806,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleSaveConfig = async () => {
     await saveSettings({
       ...settings,
-      whatsappNumber: waConfigPhone.trim()
+      whatsappNumber: waConfigPhone.trim(),
+      companyLogoUrl: logoConfigUrl.trim() || 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d',
+      companyName: companyNameConfig.trim(),
+      emailContact: emailConfig.trim(),
+      address: addressConfig.trim(),
     });
     setShowConfigModal(false);
     onRefresh();
-    showToast('Configuración de WhatsApp actualizada', 'success');
+    showToast('Configuración institucional y logo oficial guardados con éxito', 'success');
   };
 
   const filteredOrders = orders.filter(o => {
@@ -858,25 +932,36 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {/* Header Bar */}
       {/* TOP APP BAR & HEADER (APK Native Style) */}
       <div className="rounded-3xl neu-card-gold p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 shadow-2xl relative overflow-hidden">
-        <div className="space-y-1.5 z-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full neu-pressed-gold text-amber-300 text-[11px] font-extrabold uppercase tracking-widest">
-            <Shield className="w-3.5 h-3.5 text-[#D4AF37]" />
-            <span>PANEL DE CONTROL • APK ADMIN</span>
-          </div>
-          <h1 className="text-2xl sm:text-4xl font-black text-white font-cinzel tracking-tight">
-            Gestión EMILIATEX & Torneo
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
-            Consola central optimizada para smartphone. Administra catálogo, partidos, nóminas, clubes y cotizaciones de WhatsApp al instante.
-          </p>
-
-          {/* Sync status alert if triggered */}
-          {syncStatusMsg && (
-            <div className="mt-2 text-xs text-emerald-400 neu-pressed px-3.5 py-2 rounded-xl inline-flex items-center gap-2 border border-emerald-500/30">
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span className="font-semibold">{syncStatusMsg}</span>
+        <div className="flex items-center gap-4 z-10">
+          <div className="h-18 sm:h-22 aspect-[894/1600] rounded-xl sm:rounded-2xl overflow-hidden p-0.5 bg-gradient-to-br from-[#FFF2B2] via-[#D4AF37] to-[#8c6710] shadow-[0_2px_15px_rgba(212,175,55,0.4)] shrink-0 flex items-center justify-center">
+            <div className="w-full h-full rounded-[9px] sm:rounded-[13px] overflow-hidden bg-white flex items-center justify-center">
+              <img
+                src={settings.companyLogoUrl || 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d'}
+                alt="EMILIATEX Logo"
+                className="w-full h-full object-contain"
+              />
             </div>
-          )}
+          </div>
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full neu-pressed-gold text-amber-300 text-[11px] font-extrabold uppercase tracking-widest">
+              <Shield className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <span>PANEL DE CONTROL • APK ADMIN</span>
+            </div>
+            <h1 className="text-2xl sm:text-4xl font-black text-white font-cinzel tracking-tight">
+              Gestión EMILIATEX & Torneo
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
+              Consola central optimizada para smartphone. Administra catálogo, partidos, nóminas, clubes y cotizaciones de WhatsApp al instante.
+            </p>
+
+            {/* Sync status alert if triggered */}
+            {syncStatusMsg && (
+              <div className="mt-2 text-xs text-emerald-400 neu-pressed px-3.5 py-2 rounded-xl inline-flex items-center gap-2 border border-emerald-500/30">
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span className="font-semibold">{syncStatusMsg}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Action buttons & Admin user info */}
@@ -902,12 +987,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </button>
 
           <button
-            onClick={() => setShowConfigModal(true)}
+            onClick={() => {
+              setWaConfigPhone(settings.whatsappNumber);
+              setLogoConfigUrl(settings.companyLogoUrl || 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d');
+              setCompanyNameConfig(settings.companyName || 'EMILIATEX Confecciones & Uniformes');
+              setEmailConfig(settings.emailContact || 'emiliatexca81@gmail.com');
+              setAddressConfig(settings.address || 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela');
+              setShowConfigModal(true);
+            }}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl neu-btn-dark text-amber-300 hover:text-white text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-md"
-            title="Ajustes de WhatsApp"
+            title="Ajustes de la Empresa & Logo Oficial"
           >
             <Settings className="w-4 h-4 text-[#D4AF37]" />
-            <span className="hidden sm:inline">WhatsApp</span>
+            <span className="hidden sm:inline">Ajustes & Logo</span>
           </button>
 
           <button
@@ -936,12 +1028,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </p>
               </div>
               <span className="text-xs text-amber-300 font-mono neu-pressed px-3.5 py-1.5 rounded-full self-start sm:self-auto border border-[#D4AF37]/30 font-bold">
-                5 Módulos Nativos
+                6 Módulos Nativos
               </span>
             </div>
 
-            {/* 5 Big Native APK Action Buttons with High-Impact Embossed Icons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-5">
+            {/* 6 Big Native APK Action Buttons with High-Impact Embossed Icons */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-5">
               
               {/* Card 1: Catálogo */}
               <div 
@@ -1063,6 +1155,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </p>
                     <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-emerald-300 font-bold border border-emerald-500/30">
                       {orders.length} pedidos
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 6: Gestión de Quiniela C.A */}
+              <div 
+                onClick={() => handleSelectSection('view_quinielas')}
+                className="group relative flex flex-col justify-between p-6 rounded-3xl neu-card-gold border-amber-500/40 hover:border-amber-400 transition-all cursor-pointer active:scale-[0.97] shadow-xl hover:shadow-[0_10px_30px_rgba(212,175,55,0.25)]"
+              >
+                <div>
+                  {/* Big Embossed APK Icon Bubble */}
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl mx-auto flex items-center justify-center mb-4 neu-pressed text-[#D4AF37] group-hover:scale-105 group-hover:bg-[#D4AF37] group-hover:text-black transition-all shadow-inner border border-[#D4AF37]/40">
+                    <Award className="w-9 h-9 sm:w-11 sm:h-11" />
+                  </div>
+                  
+                  <div className="text-center">
+                    <h3 className="font-black text-lg text-white tracking-wide font-cinzel group-hover:text-amber-300 transition-colors">
+                      Quiniela C.A
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                      Participantes, tabla de líderes y eliminación definitiva.
+                    </p>
+                    <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-amber-300 font-bold border border-[#D4AF37]/30">
+                      {quinielas.length} registros
                     </span>
                   </div>
                 </div>
@@ -1195,6 +1312,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     {activeSection === 'add_player' && 'Fichaje de Jugadores'}
                     {activeSection === 'add_academy' && 'Gestión de Academias'}
                     {activeSection === 'view_orders' && 'Bandeja de Pedidos'}
+                    {activeSection === 'view_quinielas' && 'Control de Quiniela'}
                   </span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-white font-cinzel">
@@ -1203,6 +1321,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   {activeSection === 'add_player' && 'Inscripción de Jugadores'}
                   {activeSection === 'add_academy' && 'Inscripción de Academias y Categorías'}
                   {activeSection === 'view_orders' && 'Bandeja de Pedidos WhatsApp'}
+                  {activeSection === 'view_quinielas' && 'Participantes & Clasificación Quiniela C.A'}
                 </h2>
               </div>
             </div>
@@ -1258,6 +1377,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   }`}
                 >
                   Pedidos ({orders.length})
+                </button>
+                <button
+                  onClick={() => handleSelectSection('view_quinielas')}
+                  className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                    activeSection === 'view_quinielas' ? 'neu-btn-gold text-black shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Quiniela ({quinielas.length})
                 </button>
               </div>
             </div>
@@ -3129,50 +3256,438 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
+      {/* SECTION 6: GESTIÓN DE QUINIELA C.A */}
+      {activeSection === 'view_quinielas' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          
+          {/* Top Stats Banner */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="rounded-2xl neu-card-gold p-4 sm:p-5 flex items-center justify-between shadow-lg">
+              <div>
+                <p className="text-[11px] font-bold text-amber-300 uppercase tracking-wider font-cinzel">Total Participantes</p>
+                <h4 className="text-2xl sm:text-3xl font-black text-white font-cinzel mt-1">{quinielas.length}</h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">Registros en clasificación</p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0">
+                <Users className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="rounded-2xl neu-card p-4 sm:p-5 flex items-center justify-between shadow-lg border border-amber-500/20">
+              <div>
+                <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wider font-cinzel">Líder Actual</p>
+                <h4 className="text-lg sm:text-xl font-black text-amber-300 truncate max-w-[160px] mt-1">
+                  {quinielas[0]?.userName || 'Sin registros'}
+                </h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {quinielas[0] ? `${quinielas[0].totalPoints} puntos acumulados` : '0 pts'}
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-[#D4AF37] flex items-center justify-center shrink-0">
+                <Trophy className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="rounded-2xl neu-card p-4 sm:p-5 flex items-center justify-between shadow-lg border border-amber-500/20">
+              <div>
+                <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wider font-cinzel">Aciertos Exactos (+5)</p>
+                <h4 className="text-2xl sm:text-3xl font-black text-emerald-400 font-cinzel mt-1">
+                  {quinielas.reduce((acc, q) => acc + (q.exactHitsCount || 0), 0)}
+                </h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">Marcadores clavados globales</p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-emerald-400 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="rounded-2xl neu-card p-4 sm:p-5 flex items-center justify-between shadow-lg border border-amber-500/20">
+              <div>
+                <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wider font-cinzel">Partidos Torneo</p>
+                <h4 className="text-2xl sm:text-3xl font-black text-white font-cinzel mt-1">{matches.length}</h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {matches.filter(m => m.status === 'finished').length} finalizados evaluados
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-purple-400 flex items-center justify-center shrink-0">
+                <Layers className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+
+          {/* Action Toolbar & Search */}
+          <div className="rounded-3xl neu-card-gold p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              
+              {/* Search Bar */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={quinielaSearch}
+                  onChange={(e) => setQuinielaSearch(e.target.value)}
+                  placeholder="Buscar participante por nombre o teléfono..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl neu-pressed text-white text-xs sm:text-sm font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all"
+                />
+                {quinielaSearch && (
+                  <button
+                    onClick={() => setQuinielaSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  onClick={handleRecalculatePoints}
+                  disabled={isRecalculatingQuinielas}
+                  className="px-4 py-2.5 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-md active:scale-95 disabled:opacity-50"
+                  title="Recalcula los puntos de todos los pronósticos según los resultados oficiales actuales de los partidos terminados"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRecalculatingQuinielas ? 'animate-spin' : ''}`} />
+                  <span>{isRecalculatingQuinielas ? 'Recalculando...' : 'Recalcular Puntos'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setConfirmDeleteModal({
+                      type: 'sample_quinielas',
+                      id: 'samples',
+                      name: '4 Registros de Prueba Predeterminados',
+                      extraInfo: 'Elimina definitivamente a Carlos Ramírez, Marcos "El Goleador", Laura Méndez y Fanáticos Valencia FC de la clasificación.'
+                    });
+                  }}
+                  className="px-4 py-2.5 rounded-2xl neu-pressed text-amber-300 hover:text-white border border-[#D4AF37]/30 text-xs font-bold transition-all cursor-pointer active:scale-95 flex items-center gap-2"
+                  title="Eliminar únicamente los pronósticos de ejemplo creados para probar la página"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>Borrar Registros de Prueba</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setConfirmDeleteModal({
+                      type: 'all_quinielas',
+                      id: 'all',
+                      name: 'Todos los Registros de la Quiniela',
+                      extraInfo: 'Esta acción vaciará completamente la tabla de clasificación. Es definitiva e irreversible.'
+                    });
+                  }}
+                  className="px-4 py-2.5 rounded-2xl bg-red-500/10 text-red-400 hover:bg-red-500/25 border border-red-500/30 text-xs font-bold transition-all cursor-pointer active:scale-95 flex items-center gap-2"
+                  title="Vaciar completamente la quiniela"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Vaciar Quiniela</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Leaderboard Table / Cards */}
+          <div className="rounded-3xl neu-card overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 border-b border-white/10 bg-gradient-to-r from-[#171926] via-[#12141f] to-[#171926] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0">
+                  <Award className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black font-cinzel text-white">
+                    Clasificación de la Quiniela C.A
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {filteredQuinielas.length} {filteredQuinielas.length === 1 ? 'participante encontrado' : 'participantes encontrados'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {filteredQuinielas.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <div className="w-16 h-16 rounded-2xl neu-pressed text-amber-300/40 flex items-center justify-center mx-auto">
+                  <Award className="w-8 h-8" />
+                </div>
+                <h4 className="text-base font-bold text-white font-cinzel">No hay registros de quiniela</h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  {quinielaSearch
+                    ? 'No se encontraron participantes que coincidan con la búsqueda.'
+                    : 'La tabla de clasificación está vacía. Cuando los usuarios envíen sus pronósticos desde la página de Quiniela C.A aparecerán aquí automáticamente.'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10 bg-black/40 text-slate-400 text-[10px] uppercase tracking-wider font-bold">
+                      <th className="py-3.5 px-4 text-center">Pos</th>
+                      <th className="py-3.5 px-4">Participante</th>
+                      <th className="py-3.5 px-4 text-center">Teléfono / WhatsApp</th>
+                      <th className="py-3.5 px-4 text-center">Pronósticos</th>
+                      <th className="py-3.5 px-4 text-center">Exactos (+5)</th>
+                      <th className="py-3.5 px-4 text-center">Simples (+2)</th>
+                      <th className="py-3.5 px-4 text-center font-black text-amber-300">PUNTOS</th>
+                      <th className="py-3.5 px-4 text-center">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {filteredQuinielas.map((q, idx) => {
+                      const predCount = q.predictions ? Object.keys(q.predictions).length : 0;
+
+                      return (
+                        <tr key={q.id} className="hover:bg-white/5 transition-colors">
+                          <td className="py-3.5 px-4 text-center font-bold">
+                            <span className={`inline-flex items-center justify-center w-7 h-7 rounded-xl text-xs ${
+                              idx === 0 && !quinielaSearch ? 'neu-btn-gold text-black font-black' :
+                              idx === 1 && !quinielaSearch ? 'bg-slate-300 text-black font-black neu-card' :
+                              idx === 2 && !quinielaSearch ? 'bg-amber-800 text-white font-black neu-card' :
+                              'neu-pressed text-slate-400'
+                            }`}>
+                              {idx + 1}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-bold text-white">
+                            <div className="flex flex-col">
+                              <span className="font-extrabold text-sm">{q.userName}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                ID: {q.id.replace('quiniela-', '')}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center">
+                            {q.userPhone ? (
+                              <button
+                                onClick={() => {
+                                  const url = formatWhatsAppLink(
+                                    q.userPhone,
+                                    `¡Hola ${q.userName}! Te contactamos desde EMILIATEX respecto a tu participación en la Quiniela Oficial C.A.`
+                                  );
+                                  window.open(url, '_blank', 'noopener,noreferrer');
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full neu-pressed text-[#25D366] text-xs font-bold hover:bg-[#25D366]/20 transition-all cursor-pointer"
+                                title="Enviar mensaje por WhatsApp al participante"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5 fill-current" />
+                                <span>{q.userPhone}</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-500 text-xs">Sin teléfono</span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center text-slate-300 font-bold">
+                            <span className="px-2.5 py-1 rounded-full neu-pressed text-xs">
+                              {predCount} partidos
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center">
+                            <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                              {q.exactHitsCount}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center">
+                            <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30">
+                              {q.outcomeHitsCount}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center font-black">
+                            <span className="text-xl font-cinzel text-amber-300 drop-shadow-[0_1px_4px_rgba(212,175,55,0.4)]">
+                              {q.totalPoints}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => setInspectingQuiniela(q)}
+                                className="p-2 rounded-xl neu-pressed text-amber-300 hover:text-white transition-all cursor-pointer active:scale-95"
+                                title="Ver desglose de marcadores pronosticados"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setConfirmDeleteModal({
+                                    type: 'quiniela',
+                                    id: q.id,
+                                    name: q.userName,
+                                    extraInfo: `Teléfono: ${q.userPhone || 'N/A'} • Puntos: ${q.totalPoints} • Aciertos exactos: ${q.exactHitsCount}. Esta eliminación es definitiva e irreversible.`
+                                  });
+                                }}
+                                className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/25 border border-red-500/20 transition-all cursor-pointer active:scale-95"
+                                title="Eliminar este participante de forma definitiva"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
         </div>
       )}
 
-      {/* WHATSAPP CONFIG MODAL */}
+        </div>
+      )}
+
+      {/* COMPANY SETTINGS & OFFICIAL LOGO MODAL */}
       {showConfigModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#151722] border border-[#D4AF37]/40 rounded-2xl p-6 w-full max-w-md space-y-4 text-white shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold font-cinzel text-white flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-[#25D366]" />
-                <span>Configuración de WhatsApp</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="bg-[#151722] border border-[#D4AF37]/50 rounded-3xl p-6 sm:p-8 w-full max-w-lg space-y-5 text-white shadow-2xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <h3 className="text-lg font-bold font-cinzel text-white flex items-center gap-2.5">
+                <Settings className="w-5 h-5 text-[#D4AF37]" />
+                <span>Ajustes de la Empresa & Logo</span>
               </h3>
-              <button onClick={() => setShowConfigModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
+              <button 
+                onClick={() => setShowConfigModal(false)} 
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-300 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-300">
-              Ingresa el número de WhatsApp oficial (con indicativo de país sin signos ni espacios, ej: <code>573124567890</code>) al cual llegarán los pedidos y cotizaciones.
-            </p>
+            {/* Logo Preview & Configuration */}
+            <div className="p-4 rounded-2xl neu-pressed space-y-3 border border-[#D4AF37]/30">
+              <label className="block text-xs font-black uppercase tracking-wider text-amber-300">
+                Logo Oficial de EMILIATEX
+              </label>
+              
+              <div className="flex items-center gap-4">
+                <div className="h-28 sm:h-32 aspect-[894/1600] rounded-xl overflow-hidden p-0.5 bg-gradient-to-br from-[#FFF2B2] via-[#D4AF37] to-[#8c6710] shadow-[0_2px_15px_rgba(212,175,55,0.4)] shrink-0 flex items-center justify-center">
+                  <div className="w-full h-full rounded-[10px] overflow-hidden bg-white flex items-center justify-center">
+                    <img
+                      src={logoConfigUrl || 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d'}
+                      alt="Logo Oficial"
+                      className="w-full h-full object-contain"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d';
+                      }}
+                    />
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Número de WhatsApp receptor:</label>
+                <div className="flex-1 space-y-1.5">
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Logo vertical oficial (894×1600 px) sincronizado en barra superior, inicio, pie de página y miniatura de WhatsApp.
+                  </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setLogoConfigUrl('https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d')}
+                      className="text-[10px] font-bold text-amber-300 hover:text-white underline cursor-pointer text-left"
+                    >
+                      Restaurar Logo Oficial de Firebase
+                    </button>
+                    <a
+                      href={logoConfigUrl || 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-amber-300/80 hover:text-amber-200 underline"
+                    >
+                      Ver en tamaño completo ↗
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">URL del Logo (Firebase Storage / Web):</label>
+                <input
+                  type="text"
+                  value={logoConfigUrl}
+                  onChange={e => setLogoConfigUrl(e.target.value)}
+                  placeholder="https://firebasestorage.googleapis.com/..."
+                  className="w-full px-3 py-2 rounded-xl bg-[#1c1f2e] border border-white/10 text-white text-xs focus:border-[#D4AF37] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* WhatsApp Number */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-300">
+                Número de WhatsApp receptor de pedidos y cotizaciones:
+              </label>
               <input
                 type="text"
                 value={waConfigPhone}
                 onChange={e => setWaConfigPhone(e.target.value)}
                 placeholder="573124567890"
-                className="w-full px-3 py-2 rounded-lg bg-[#1c1f2e] border border-white/10 text-white text-xs focus:border-[#D4AF37] focus:outline-none"
+                className="w-full px-3 py-2 rounded-xl bg-[#1c1f2e] border border-white/10 text-white text-xs focus:border-[#D4AF37] focus:outline-none font-mono"
+              />
+              <p className="text-[10px] text-slate-400">
+                Con indicativo de país sin signos (+) ni espacios (ej: <code>573124567890</code> o <code>584128901234</code>).
+              </p>
+            </div>
+
+            {/* Company Name */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-300">
+                Razón Social / Nombre de la Marca:
+              </label>
+              <input
+                type="text"
+                value={companyNameConfig}
+                onChange={e => setCompanyNameConfig(e.target.value)}
+                placeholder="EMILIATEX Confecciones & Uniformes"
+                className="w-full px-3 py-2 rounded-xl bg-[#1c1f2e] border border-white/10 text-white text-xs focus:border-[#D4AF37] focus:outline-none"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            {/* Email Contact */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-300">
+                Correo Electrónico Oficial:
+              </label>
+              <input
+                type="email"
+                value={emailConfig}
+                onChange={e => setEmailConfig(e.target.value)}
+                placeholder="emiliatexca81@gmail.com"
+                className="w-full px-3 py-2 rounded-xl bg-[#1c1f2e] border border-white/10 text-white text-xs focus:border-[#D4AF37] focus:outline-none font-mono"
+              />
+            </div>
+
+            {/* Address */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-300">
+                Dirección Física / Taller:
+              </label>
+              <textarea
+                rows={2}
+                value={addressConfig}
+                onChange={e => setAddressConfig(e.target.value)}
+                placeholder="Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela"
+                className="w-full px-3 py-2 rounded-xl bg-[#1c1f2e] border border-white/10 text-white text-xs focus:border-[#D4AF37] focus:outline-none resize-none"
+              />
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-white/10">
               <button
                 onClick={() => setShowConfigModal(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 text-xs font-semibold text-slate-300"
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSaveConfig}
-                className="px-5 py-2 rounded-lg bg-[#25D366] text-black font-extrabold text-xs tracking-wide"
+                className="px-6 py-2.5 rounded-xl neu-btn-gold text-black font-extrabold text-xs tracking-wider uppercase transition-all cursor-pointer shadow-lg hover:brightness-110 active:scale-95"
               >
-                Guardar Número
+                Guardar Ajustes & Logo
               </button>
             </div>
           </div>
@@ -3238,6 +3753,144 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 ) : (
                   <span>Sí, Eliminar Definitivamente</span>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUINIELA DETAIL INSPECTION MODAL */}
+      {inspectingQuiniela && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="bg-[#151722] border border-[#D4AF37]/50 rounded-3xl p-6 sm:p-8 w-full max-w-2xl space-y-5 text-white shadow-2xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0">
+                  <Award className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold font-cinzel text-white">
+                    Pronósticos de {inspectingQuiniela.userName}
+                  </h3>
+                  <p className="text-xs text-amber-300 font-mono">
+                    {inspectingQuiniela.userPhone || 'Sin teléfono'} • {inspectingQuiniela.totalPoints} Pts Totales
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setInspectingQuiniela(null)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Stats Pills */}
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-3 rounded-2xl neu-pressed">
+                <span className="block text-[10px] text-slate-400 font-bold uppercase">Puntos</span>
+                <span className="text-2xl font-black font-cinzel text-amber-300">{inspectingQuiniela.totalPoints}</span>
+              </div>
+              <div className="p-3 rounded-2xl neu-pressed">
+                <span className="block text-[10px] text-slate-400 font-bold uppercase">Exactos (+5)</span>
+                <span className="text-2xl font-black text-emerald-400">{inspectingQuiniela.exactHitsCount}</span>
+              </div>
+              <div className="p-3 rounded-2xl neu-pressed">
+                <span className="block text-[10px] text-slate-400 font-bold uppercase">Simples (+2)</span>
+                <span className="text-2xl font-black text-amber-400">{inspectingQuiniela.outcomeHitsCount}</span>
+              </div>
+            </div>
+
+            {/* List of Match Predictions */}
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                Desglose Partido por Partido ({Object.keys(inspectingQuiniela.predictions || {}).length} pronósticos):
+              </h4>
+
+              {Object.keys(inspectingQuiniela.predictions || {}).length === 0 ? (
+                <p className="text-xs text-slate-400 italic p-4 text-center">Este participante no tiene pronósticos registrados.</p>
+              ) : (
+                (Object.entries(inspectingQuiniela.predictions || {}) as [string, MatchPredictionScore][]).map(([matchId, pred]) => {
+                  const match = matches.find(m => m.id === matchId);
+                  const evalResult = match ? evaluateMatchPrediction(pred, match) : null;
+
+                  return (
+                    <div key={matchId} className="p-4 rounded-2xl neu-card border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-[10px] text-amber-400 font-bold uppercase">
+                          <span>{match?.category || 'Torneo'}</span>
+                          <span>•</span>
+                          <span>{match?.stage || 'Fase Regular'}</span>
+                        </div>
+                        <p className="text-sm font-black text-white mt-0.5 truncate">
+                          {match ? `${match.homeTeam} vs ${match.awayTeam}` : `Partido ID: ${matchId}`}
+                        </p>
+                        {match?.status === 'finished' ? (
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Resultado Real: <span className="text-white font-bold">{match.homeScore} - {match.awayScore}</span>
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-blue-400 mt-0.5">
+                            Estado: {match?.status === 'live' ? 'En Vivo' : 'Por Disputar'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <span className="block text-[10px] text-slate-400 uppercase font-bold">Pronóstico</span>
+                          <span className="text-base font-black text-white font-mono">
+                            {pred.homeScore} - {pred.awayScore}
+                          </span>
+                        </div>
+
+                        <div className="w-24 text-center">
+                          {evalResult ? (
+                            <span className={`inline-block px-2.5 py-1 rounded-xl text-xs font-bold ${
+                              evalResult.exactHit
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : evalResult.outcomeHit
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : 'bg-white/5 text-slate-400'
+                            }`}>
+                              +{evalResult.points} pts
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500">Pendiente</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = inspectingQuiniela;
+                  setInspectingQuiniela(null);
+                  setConfirmDeleteModal({
+                    type: 'quiniela',
+                    id: target.id,
+                    name: target.userName,
+                    extraInfo: `Teléfono: ${target.userPhone || 'N/A'} • Puntos: ${target.totalPoints}. Esta eliminación es definitiva e irreversible.`
+                  });
+                }}
+                className="px-4 py-2.5 rounded-2xl bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 text-xs font-bold cursor-pointer transition-all"
+              >
+                Eliminar Registro
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setInspectingQuiniela(null)}
+                className="px-5 py-2.5 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider cursor-pointer"
+              >
+                Cerrar
               </button>
             </div>
           </div>

@@ -44,6 +44,22 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
         <div className="relative z-10 max-w-5xl mx-auto text-center space-y-8">
           
+          {/* Official Company Badge with Real Logo */}
+          <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full neu-pressed-gold border border-[#D4AF37]/50 shadow-[0_4px_20px_rgba(212,175,55,0.25)]">
+            <div className="h-9 aspect-[894/1600] rounded-lg overflow-hidden p-0.5 bg-gradient-to-br from-[#FFF2B2] via-[#D4AF37] to-[#8c6710] shadow-sm shrink-0 flex items-center justify-center">
+              <div className="w-full h-full rounded-[5px] overflow-hidden bg-white flex items-center justify-center">
+                <img 
+                  src={settings.companyLogoUrl || 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d'} 
+                  alt="EMILIATEX" 
+                  className="w-full h-full object-contain" 
+                />
+              </div>
+            </div>
+            <span className="text-xs font-black tracking-widest text-amber-300 uppercase font-cinzel">
+              EMILIATEX • CONFECCIÓN & DISEÑO OFICIAL
+            </span>
+          </div>
+
           {/* Main Display Headline */}
           <div className="space-y-4">
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white font-cinzel leading-none">

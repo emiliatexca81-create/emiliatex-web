@@ -10,7 +10,7 @@ import { AdminView } from './views/AdminView';
 import { MatchDetailView } from './views/MatchDetailView';
 import { QuinielaView } from './views/QuinielaView';
 import { ProductQuoteModal } from './components/ProductQuoteModal';
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings } from './types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, QuinielaEntry } from './types';
 import { 
   getProducts, 
   getMatches, 
@@ -18,6 +18,7 @@ import {
   getAcademies, 
   getOrders, 
   getSettings, 
+  getQuinielas,
   formatWhatsAppLink,
   subscribeProducts,
   subscribeMatches,
@@ -25,6 +26,7 @@ import {
   subscribeAcademies,
   subscribeOrders,
   subscribeSettings,
+  subscribeQuinielas,
   seedInitialFirestoreData
 } from './services/storage';
 import { AuthProvider } from './services/authContext';
@@ -59,6 +61,7 @@ function AppContent() {
   const [academies, setAcademies] = useState<Academy[]>(getAcademies());
   const [orders, setOrders] = useState<OrderQuotation[]>(getOrders());
   const [settings, setSettings] = useState<AppSettings>(getSettings());
+  const [quinielas, setQuinielas] = useState<QuinielaEntry[]>(getQuinielas());
   const [quoteProduct, setQuoteProduct] = useState<Product | null>(null);
 
   // Active selected match object (if any)
@@ -72,6 +75,7 @@ function AppContent() {
     setAcademies(getAcademies());
     setOrders(getOrders());
     setSettings(getSettings());
+    setQuinielas(getQuinielas());
   };
 
   useEffect(() => {
@@ -115,6 +119,7 @@ function AppContent() {
     const unsubAcademies = subscribeAcademies((a) => setAcademies(a));
     const unsubOrders = subscribeOrders((o) => setOrders(o));
     const unsubSettings = subscribeSettings((s) => setSettings(s));
+    const unsubQuinielas = subscribeQuinielas((q) => setQuinielas(q));
 
     // Attempt seed to populate Firestore if collections are blank
     seedInitialFirestoreData().catch(() => {});
@@ -128,6 +133,7 @@ function AppContent() {
       unsubAcademies();
       unsubOrders();
       unsubSettings();
+      unsubQuinielas();
     };
   }, []);
 
@@ -236,6 +242,7 @@ function AppContent() {
                 academies={academies}
                 orders={orders}
                 settings={settings}
+                quinielas={quinielas}
                 onRefresh={loadData}
                 initialSection={(initialAdminSection as any) || undefined}
               />

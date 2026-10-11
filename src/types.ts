@@ -157,6 +157,7 @@ export interface AppSettings {
   tournamentName: string;
   emailContact: string;
   address: string;
+  companyLogoUrl?: string;
 }
 
 export interface MatchPredictionScore {

@@ -809,13 +809,29 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('predict')}
-                className="px-4 py-2 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider cursor-pointer"
-              >
-                + Llenar Mi Quiniela
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newUrl = `${window.location.pathname}?page=admin&adminSection=view_quinielas`;
+                    window.history.pushState(null, '', newUrl);
+                    onNavigate('admin');
+                  }}
+                  className="px-3.5 py-2 rounded-xl neu-card text-amber-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border border-[#D4AF37]/30 active:scale-95"
+                  title="Gestionar y eliminar participantes de la quiniela en el Panel Admin"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>Panel Admin</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('predict')}
+                  className="px-4 py-2 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider cursor-pointer active:scale-95 transition-all shadow-md"
+                >
+                  + Llenar Mi Quiniela
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">

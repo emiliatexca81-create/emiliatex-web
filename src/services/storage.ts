@@ -91,6 +91,8 @@ const KEYS = {
   INITIALIZED_PLAYERS: 'emiliatex_players_initialized_v1',
   INITIALIZED_ACADEMIES: 'emiliatex_academies_initialized_v1',
   DELETED_MATCH_IDS: 'emiliatex_deleted_match_ids_v1',
+  INITIALIZED_QUINIELAS: 'emiliatex_quinielas_initialized_v1',
+  DELETED_QUINIELA_IDS: 'emiliatex_deleted_quiniela_ids_v1',
 };
 
 // Safe localStorage accessor
@@ -125,6 +127,17 @@ export function markMatchAsDeleted(id: string): void {
   const current = getDeletedMatchIds();
   if (!current.includes(id)) {
     setItem(KEYS.DELETED_MATCH_IDS, [...current, id]);
+  }
+}
+
+export function getDeletedQuinielaIds(): string[] {
+  return getItem<string[]>(KEYS.DELETED_QUINIELA_IDS, []);
+}
+
+export function markQuinielaAsDeleted(id: string): void {
+  const current = getDeletedQuinielaIds();
+  if (!current.includes(id)) {
+    setItem(KEYS.DELETED_QUINIELA_IDS, [...current, id]);
   }
 }
 
@@ -419,6 +432,10 @@ export function getSettings(): AppSettings {
     current.address = 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela';
     changed = true;
   }
+  if (!current.companyLogoUrl) {
+    current.companyLogoUrl = 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d';
+    changed = true;
+  }
   if (changed) {
     setItem(KEYS.SETTINGS, current);
   }
@@ -673,7 +690,11 @@ export function computeTotalQuinielaStats(
 }
 
 export function getQuinielas(): QuinielaEntry[] {
-  return getItem<QuinielaEntry[]>(KEYS.QUINIELAS, initialQuinielas);
+  const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_QUINIELAS) === 'true';
+  const raw = getItem<QuinielaEntry[]>(KEYS.QUINIELAS, isInitialized ? [] : initialQuinielas);
+  const deletedIds = getDeletedQuinielaIds();
+  if (deletedIds.length === 0) return raw;
+  return raw.filter(q => !deletedIds.includes(q.id));
 }
 
 export function getUserSavedQuiniela(): { userName: string; userPhone: string; predictions: Record<string, MatchPredictionScore> } | null {
@@ -685,6 +706,16 @@ export function saveUserLocalQuiniela(data: { userName: string; userPhone: strin
 }
 
 export async function saveQuiniela(entry: QuinielaEntry): Promise<QuinielaEntry[]> {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_QUINIELAS, 'true');
+  }
+
+  // If was previously marked deleted, unmark
+  const deletedIds = getDeletedQuinielaIds();
+  if (deletedIds.includes(entry.id)) {
+    setItem(KEYS.DELETED_QUINIELA_IDS, deletedIds.filter(id => id !== entry.id));
+  }
+
   const current = getQuinielas();
   const existsIndex = current.findIndex(q => q.id === entry.id || (q.userPhone && q.userPhone === entry.userPhone));
   let updated: QuinielaEntry[];
@@ -708,13 +739,105 @@ export async function saveQuiniela(entry: QuinielaEntry): Promise<QuinielaEntry[
   return updated;
 }
 
+export async function deleteQuiniela(id: string): Promise<QuinielaEntry[]> {
+  // Mark permanently as deleted
+  markQuinielaAsDeleted(id);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_QUINIELAS, 'true');
+  }
+
+  const current = getQuinielas();
+  const updated = current.filter(q => q.id !== id);
+  setItem(KEYS.QUINIELAS, updated);
+
+  try {
+    await deleteDoc(doc(db, 'quinielas', id));
+  } catch (err) {
+    console.warn('Firestore Quiniela delete notice:', err);
+  }
+
+  return updated;
+}
+
+export async function deleteAllQuinielas(): Promise<QuinielaEntry[]> {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_QUINIELAS, 'true');
+  }
+
+  const current = getQuinielas();
+  current.forEach(q => markQuinielaAsDeleted(q.id));
+  setItem(KEYS.QUINIELAS, []);
+
+  for (const q of current) {
+    try {
+      await deleteDoc(doc(db, 'quinielas', q.id));
+    } catch (err) {
+      console.warn('Firestore Quiniela delete notice:', err);
+    }
+  }
+
+  return [];
+}
+
+export async function deleteSampleQuinielas(): Promise<QuinielaEntry[]> {
+  const sampleIds = ['quiniela-dt-ramirez', 'quiniela-marcos-fan', 'quiniela-laura-academia', 'quiniela-valencia-cf'];
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_QUINIELAS, 'true');
+  }
+
+  sampleIds.forEach(id => markQuinielaAsDeleted(id));
+  const current = getQuinielas();
+  const updated = current.filter(q => !sampleIds.includes(q.id));
+  setItem(KEYS.QUINIELAS, updated);
+
+  for (const id of sampleIds) {
+    try {
+      await deleteDoc(doc(db, 'quinielas', id));
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  return updated;
+}
+
+export async function recalculateAllQuinielas(matches: TournamentMatch[]): Promise<QuinielaEntry[]> {
+  const current = getQuinielas();
+  const updated = current.map(entry => {
+    const stats = computeTotalQuinielaStats(entry.predictions, matches);
+    return {
+      ...entry,
+      totalPoints: stats.totalPoints,
+      exactHitsCount: stats.exactHitsCount,
+      outcomeHitsCount: stats.outcomeHitsCount,
+      updatedAt: new Date().toISOString()
+    };
+  });
+
+  updated.sort((a, b) => b.totalPoints - a.totalPoints || b.exactHitsCount - a.exactHitsCount);
+  setItem(KEYS.QUINIELAS, updated);
+
+  for (const entry of updated) {
+    try {
+      await setDoc(doc(db, 'quinielas', entry.id), cleanFirestoreData(entry));
+    } catch (err) {
+      console.warn('Firestore Quiniela recalculate write notice:', err);
+    }
+  }
+
+  return updated;
+}
+
 export function subscribeQuinielas(callback: (quinielas: QuinielaEntry[]) => void): () => void {
   const path = 'quinielas';
   return onSnapshot(
     collection(db, path),
     (snapshot) => {
+      const deletedIds = getDeletedQuinielaIds();
       if (!snapshot.empty) {
-        const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as QuinielaEntry));
+        const list = snapshot.docs
+          .map(d => ({ ...d.data(), id: d.id } as QuinielaEntry))
+          .filter(q => !deletedIds.includes(q.id));
         list.sort((a, b) => b.totalPoints - a.totalPoints || b.exactHitsCount - a.exactHitsCount);
         setItem(KEYS.QUINIELAS, list);
         callback(list);
