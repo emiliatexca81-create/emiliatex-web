@@ -86,6 +86,11 @@ const KEYS = {
   SETTINGS: 'emiliatex_settings_v1',
   QUINIELAS: 'emiliatex_quinielas_v1',
   USER_QUINIELA: 'emiliatex_user_quiniela_v1',
+  INITIALIZED_MATCHES: 'emiliatex_matches_initialized_v1',
+  INITIALIZED_PRODUCTS: 'emiliatex_products_initialized_v1',
+  INITIALIZED_PLAYERS: 'emiliatex_players_initialized_v1',
+  INITIALIZED_ACADEMIES: 'emiliatex_academies_initialized_v1',
+  DELETED_MATCH_IDS: 'emiliatex_deleted_match_ids_v1',
 };
 
 // Safe localStorage accessor
@@ -93,7 +98,7 @@ function getItem<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
+    if (raw === null) return fallback;
     return JSON.parse(raw) as T;
   } catch (err) {
     console.warn(`Error reading ${key} from localStorage:`, err);
@@ -108,6 +113,18 @@ function setItem<T>(key: string, value: T): void {
     window.dispatchEvent(new CustomEvent('emiliatex_storage_update', { detail: { key } }));
   } catch (err) {
     console.error(`Error saving ${key} to localStorage:`, err);
+  }
+}
+
+// Track IDs that have been explicitly deleted so fallback data never resurrects them
+export function getDeletedMatchIds(): string[] {
+  return getItem<string[]>(KEYS.DELETED_MATCH_IDS, []);
+}
+
+export function markMatchAsDeleted(id: string): void {
+  const current = getDeletedMatchIds();
+  if (!current.includes(id)) {
+    setItem(KEYS.DELETED_MATCH_IDS, [...current, id]);
   }
 }
 
@@ -139,7 +156,8 @@ export function cleanFirestoreData<T>(obj: T): any {
 // ---------------- PRODUCTS ----------------
 
 export function getProducts(): Product[] {
-  return getItem<Product[]>(KEYS.PRODUCTS, initialProducts);
+  const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_PRODUCTS) === 'true';
+  return getItem<Product[]>(KEYS.PRODUCTS, isInitialized ? [] : initialProducts);
 }
 
 export async function saveProduct(product: Product): Promise<Product[]> {
@@ -180,7 +198,11 @@ export async function deleteProduct(id: string): Promise<Product[]> {
 // ---------------- MATCHES ----------------
 
 export function getMatches(): TournamentMatch[] {
-  return getItem<TournamentMatch[]>(KEYS.MATCHES, initialMatches);
+  const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_MATCHES) === 'true';
+  const rawList = getItem<TournamentMatch[]>(KEYS.MATCHES, isInitialized ? [] : initialMatches);
+  const deletedIds = getDeletedMatchIds();
+  if (deletedIds.length === 0) return rawList;
+  return rawList.filter(m => !deletedIds.includes(m.id));
 }
 
 export async function saveMatch(match: TournamentMatch): Promise<TournamentMatch[]> {
@@ -192,6 +214,16 @@ export async function saveMatch(match: TournamentMatch): Promise<TournamentMatch
     updated[existsIndex] = match;
   } else {
     updated = [match, ...current];
+  }
+  
+  // If previously marked deleted, unmark
+  const deletedIds = getDeletedMatchIds();
+  if (deletedIds.includes(match.id)) {
+    setItem(KEYS.DELETED_MATCH_IDS, deletedIds.filter(id => id !== match.id));
+  }
+  
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_MATCHES, 'true');
   }
   setItem(KEYS.MATCHES, updated);
 
@@ -205,6 +237,12 @@ export async function saveMatch(match: TournamentMatch): Promise<TournamentMatch
 }
 
 export async function deleteMatch(id: string): Promise<TournamentMatch[]> {
+  // Permanently record as deleted
+  markMatchAsDeleted(id);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_MATCHES, 'true');
+  }
+
   const current = getMatches();
   const updated = current.filter(p => p.id !== id);
   setItem(KEYS.MATCHES, updated);
@@ -218,10 +256,28 @@ export async function deleteMatch(id: string): Promise<TournamentMatch[]> {
   return updated;
 }
 
+export async function deleteAllMatches(): Promise<TournamentMatch[]> {
+  const current = getMatches();
+  for (const m of current) {
+    markMatchAsDeleted(m.id);
+    try {
+      await deleteDoc(doc(db, 'matches', m.id));
+    } catch (err) {
+      console.warn(`Error deleting match ${m.id} in Firestore:`, err);
+    }
+  }
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_MATCHES, 'true');
+  }
+  setItem(KEYS.MATCHES, []);
+  return [];
+}
+
 // ---------------- PLAYERS ----------------
 
 export function getPlayers(): Player[] {
-  return getItem<Player[]>(KEYS.PLAYERS, initialPlayers);
+  const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_PLAYERS) === 'true';
+  return getItem<Player[]>(KEYS.PLAYERS, isInitialized ? [] : initialPlayers);
 }
 
 export async function savePlayer(player: Player): Promise<Player[]> {
@@ -392,39 +448,46 @@ export function resetSampleData(): void {
   setItem(KEYS.SETTINGS, initialSettings);
 }
 
-// Seed initial data to Firestore if collection is empty
+// Seed initial data to Firestore if collection is empty AND never seeded before
 export async function seedInitialFirestoreData(): Promise<void> {
+  // If the user or app already initialized matches, do NOT auto-seed dummy matches!
+  const matchesInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_MATCHES) === 'true';
+
   try {
     const prodSnap = await getDocs(collection(db, 'products'));
-    if (prodSnap.empty) {
+    if (prodSnap.empty && !localStorage.getItem(KEYS.INITIALIZED_PRODUCTS)) {
       console.log('Seeding initial products to Firestore...');
       for (const prod of initialProducts) {
         await setDoc(doc(db, 'products', prod.id), cleanFirestoreData(prod));
       }
+      localStorage.setItem(KEYS.INITIALIZED_PRODUCTS, 'true');
     }
 
     const matchSnap = await getDocs(collection(db, 'matches'));
-    if (matchSnap.empty) {
+    if (matchSnap.empty && !matchesInitialized) {
       console.log('Seeding initial matches to Firestore...');
       for (const match of initialMatches) {
         await setDoc(doc(db, 'matches', match.id), cleanFirestoreData(match));
       }
+      localStorage.setItem(KEYS.INITIALIZED_MATCHES, 'true');
     }
 
     const plySnap = await getDocs(collection(db, 'players'));
-    if (plySnap.empty) {
+    if (plySnap.empty && !localStorage.getItem(KEYS.INITIALIZED_PLAYERS)) {
       console.log('Seeding initial players to Firestore...');
       for (const player of initialPlayers) {
         await setDoc(doc(db, 'players', player.id), cleanFirestoreData(player));
       }
+      localStorage.setItem(KEYS.INITIALIZED_PLAYERS, 'true');
     }
 
     const acadSnap = await getDocs(collection(db, 'academies'));
-    if (acadSnap.empty) {
+    if (acadSnap.empty && !localStorage.getItem(KEYS.INITIALIZED_ACADEMIES)) {
       console.log('Seeding initial academies to Firestore...');
       for (const acad of initialAcademies) {
         await setDoc(doc(db, 'academies', acad.id), cleanFirestoreData(acad));
       }
+      localStorage.setItem(KEYS.INITIALIZED_ACADEMIES, 'true');
     }
 
     const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
@@ -444,13 +507,12 @@ export function subscribeProducts(callback: (products: Product[]) => void): () =
   return onSnapshot(
     collection(db, path),
     (snapshot) => {
-      if (!snapshot.empty) {
-        const prods = snapshot.docs.map(d => d.data() as Product);
-        setItem(KEYS.PRODUCTS, prods);
-        callback(prods);
-      } else {
-        callback(getProducts());
+      const prods = snapshot.docs.map(d => d.data() as Product);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(KEYS.INITIALIZED_PRODUCTS, 'true');
       }
+      setItem(KEYS.PRODUCTS, prods);
+      callback(prods);
     },
     (error) => {
       console.warn('Product subscription notice:', error.message);
@@ -464,13 +526,16 @@ export function subscribeMatches(callback: (matches: TournamentMatch[]) => void)
   return onSnapshot(
     collection(db, path),
     (snapshot) => {
-      if (!snapshot.empty) {
-        const matches = snapshot.docs.map(d => d.data() as TournamentMatch);
-        setItem(KEYS.MATCHES, matches);
-        callback(matches);
-      } else {
-        callback(getMatches());
+      const deletedIds = getDeletedMatchIds();
+      const allMatches = snapshot.docs.map(d => d.data() as TournamentMatch);
+      // Filter out any matches that were explicitly marked as deleted
+      const activeMatches = allMatches.filter(m => !deletedIds.includes(m.id));
+      
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(KEYS.INITIALIZED_MATCHES, 'true');
       }
+      setItem(KEYS.MATCHES, activeMatches);
+      callback(activeMatches);
     },
     (error) => {
       console.warn('Matches subscription notice:', error.message);
@@ -484,13 +549,12 @@ export function subscribePlayers(callback: (players: Player[]) => void): () => v
   return onSnapshot(
     collection(db, path),
     (snapshot) => {
-      if (!snapshot.empty) {
-        const players = snapshot.docs.map(d => d.data() as Player);
-        setItem(KEYS.PLAYERS, players);
-        callback(players);
-      } else {
-        callback(getPlayers());
+      const players = snapshot.docs.map(d => d.data() as Player);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(KEYS.INITIALIZED_PLAYERS, 'true');
       }
+      setItem(KEYS.PLAYERS, players);
+      callback(players);
     },
     (error) => {
       console.warn('Players subscription notice:', error.message);
@@ -504,13 +568,12 @@ export function subscribeAcademies(callback: (academies: Academy[]) => void): ()
   return onSnapshot(
     collection(db, path),
     (snapshot) => {
-      if (!snapshot.empty) {
-        const academies = snapshot.docs.map(d => d.data() as Academy);
-        setItem(KEYS.ACADEMIES, academies);
-        callback(academies);
-      } else {
-        callback(getAcademies());
+      const academies = snapshot.docs.map(d => d.data() as Academy);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(KEYS.INITIALIZED_ACADEMIES, 'true');
       }
+      setItem(KEYS.ACADEMIES, academies);
+      callback(academies);
     },
     (error) => {
       console.warn('Academies subscription notice:', error.message);

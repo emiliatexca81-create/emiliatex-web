@@ -21,7 +21,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onSelectMatch,
 }) => {
   const settings = getSettings();
-  const liveMatch = matches.find(m => m.status === 'live');
   const upcomingMatches = matches.filter(m => m.status === 'upcoming').slice(0, 2);
   const featuredProducts = products.filter(p => p.isFeatured).slice(0, 4);
 
@@ -45,26 +44,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
         <div className="relative z-10 max-w-5xl mx-auto text-center space-y-8">
           
-          {/* Live Tournament Ticker Pill / HUD Status */}
-          {liveMatch ? (
-            <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full neu-pressed border border-red-500/50 text-red-300 text-xs sm:text-sm font-semibold shadow-[0_0_20px_rgba(239,68,68,0.35)] animate-pulse">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-              <span className="font-mono uppercase font-bold text-[11px] tracking-wider">HUD // EN VIVO:</span>
-              <span className="font-bold text-white">{liveMatch.homeAcademyName} ({liveMatch.homeScore}) vs ({liveMatch.awayScore}) {liveMatch.awayAcademyName}</span>
-              <button
-                onClick={() => onNavigate('tournament')}
-                className="underline text-amber-300 ml-1 hover:text-white cursor-pointer font-bold"
-              >
-                Ver Marcador →
-              </button>
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full hud-badge text-amber-300 text-xs sm:text-sm font-bold tracking-widest uppercase">
-              <Sparkles className="w-4 h-4 text-[#D4AF37] animate-pulse" />
-              <span>EMILIATEX C.A</span>
-            </div>
-          )}
-
           {/* Main Display Headline */}
           <div className="space-y-4">
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white font-cinzel leading-none">

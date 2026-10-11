@@ -70,7 +70,8 @@ import {
   saveSettings,
   resetSampleData,
   seedInitialFirestoreData,
-  formatWhatsAppLink 
+  formatWhatsAppLink,
+  deleteAllMatches 
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
 import { 
@@ -143,7 +144,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // In-App Confirmation Modal (solves confirm() blocked in iframe)
   const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
-    type: 'academy' | 'match' | 'player' | 'product' | 'order';
+    type: 'academy' | 'match' | 'player' | 'product' | 'order' | 'all_matches';
     id: string;
     name: string;
     extraInfo?: string;
@@ -175,7 +176,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
         showToast(`Academia "${name}" eliminada correctamente de Firestore y del torneo`, 'success');
       } else if (type === 'match') {
         await deleteMatch(id);
-        showToast(`Partido eliminado correctamente`, 'success');
+        showToast(`Partido eliminado correctamente de forma definitiva`, 'success');
+      } else if (type === 'all_matches') {
+        await deleteAllMatches();
+        showToast(`Todos los partidos predeterminados han sido eliminados de forma definitiva`, 'success');
       } else if (type === 'player') {
         await deletePlayer(id);
         showToast(`Jugador "${name}" eliminado`, 'success');
@@ -1888,11 +1892,42 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           {/* Existing Matches table */}
           <div className="rounded-3xl neu-card p-6 sm:p-8 space-y-4 shadow-xl border border-white/10">
-            <h4 className="text-sm font-black text-white uppercase tracking-wider font-cinzel flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#D4AF37]" />
-              <span>Partidos del Torneo ({matches.length})</span>
-            </h4>
-            <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <h4 className="text-sm font-black text-white uppercase tracking-wider font-cinzel flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#D4AF37]" />
+                <span>Partidos del Torneo ({matches.length})</span>
+              </h4>
+
+              {matches.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmDeleteModal({
+                      type: 'all_matches',
+                      id: 'all',
+                      name: `Todos los ${matches.length} partidos`,
+                      extraInfo: 'Se eliminarán definitivamente todos los partidos predeterminados y actuales. Podrás crear tus propios partidos desde cero.'
+                    });
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-bold border border-red-500/30 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  title="Eliminar de forma definitiva todos los partidos existentes"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  <span>Limpiar / Eliminar Todos los Partidos</span>
+                </button>
+              )}
+            </div>
+
+            {matches.length === 0 ? (
+              <div className="p-8 text-center neu-pressed rounded-2xl border border-white/5 space-y-2">
+                <Trophy className="w-10 h-10 text-slate-500 mx-auto" />
+                <p className="text-sm font-bold text-white">No hay partidos en el torneo actualmente</p>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Has eliminado los partidos predeterminados. Utiliza el formulario superior para programar y publicar los partidos oficiales de tus academias cuando lo desees.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
               {matches.map(m => (
                 <div key={m.id} className="p-4 sm:p-5 rounded-2xl neu-pressed flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/5 hover:border-[#D4AF37]/30 transition-all">
                   <div className="min-w-0 flex-1">
@@ -1959,6 +1994,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
