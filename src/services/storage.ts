@@ -19,63 +19,7 @@ import {
   initialSettings 
 } from '../data/initialData';
 
-export const initialQuinielas: QuinielaEntry[] = [
-  {
-    id: 'quiniela-dt-ramirez',
-    userName: 'Prof. Carlos Ramírez',
-    userPhone: '+58 412 8901234',
-    totalPoints: 24,
-    exactHitsCount: 4,
-    outcomeHitsCount: 2,
-    predictions: {
-      'match-1': { homeScore: 2, awayScore: 1 },
-      'match-2': { homeScore: 3, awayScore: 0 },
-      'match-3': { homeScore: 1, awayScore: 1 },
-      'match-4': { homeScore: 2, awayScore: 0 }
-    },
-    createdAt: '2026-09-21T14:30:00Z'
-  },
-  {
-    id: 'quiniela-marcos-fan',
-    userName: 'Marcos "El Goleador"',
-    userPhone: '+58 424 5567890',
-    totalPoints: 19,
-    exactHitsCount: 3,
-    outcomeHitsCount: 2,
-    predictions: {
-      'match-1': { homeScore: 2, awayScore: 1 },
-      'match-2': { homeScore: 2, awayScore: 1 },
-      'match-3': { homeScore: 0, awayScore: 0 }
-    },
-    createdAt: '2026-09-22T09:15:00Z'
-  },
-  {
-    id: 'quiniela-laura-academia',
-    userName: 'Laura Méndez (Academia Central)',
-    userPhone: '+58 414 1122334',
-    totalPoints: 16,
-    exactHitsCount: 2,
-    outcomeHitsCount: 3,
-    predictions: {
-      'match-1': { homeScore: 3, awayScore: 1 },
-      'match-2': { homeScore: 3, awayScore: 0 }
-    },
-    createdAt: '2026-09-22T16:45:00Z'
-  },
-  {
-    id: 'quiniela-valencia-cf',
-    userName: 'Fanáticos Valencia FC',
-    userPhone: '+58 416 9988776',
-    totalPoints: 14,
-    exactHitsCount: 2,
-    outcomeHitsCount: 2,
-    predictions: {
-      'match-1': { homeScore: 1, awayScore: 0 },
-      'match-4': { homeScore: 2, awayScore: 1 }
-    },
-    createdAt: '2026-09-23T08:00:00Z'
-  }
-];
+export const initialQuinielas: QuinielaEntry[] = [];
 
 const KEYS = {
   PRODUCTS: 'emiliatex_products_v1',
@@ -208,7 +152,62 @@ export async function deleteProduct(id: string): Promise<Product[]> {
   return updated;
 }
 
-// ---------------- MATCHES ----------------
+// ---------------- MATCHES & JORNADAS ----------------
+
+export function getMatchJornada(match: TournamentMatch): string {
+  if (match.jornada !== undefined && match.jornada !== null && String(match.jornada).trim() !== '') {
+    const val = String(match.jornada).trim();
+    if (!isNaN(Number(val))) {
+      return `Jornada ${Number(val)}`;
+    }
+    return val.toLowerCase().startsWith('jornada') ? val : `Jornada ${val}`;
+  }
+
+  // Fallback: extract from phase or stage if mentions "jornada", "fecha", "fecha X"
+  const combined = `${match.phase || ''} ${match.stage || ''}`;
+  const found = combined.match(/(?:jornada|fecha|round)\s*(\d+)/i);
+  if (found) {
+    return `Jornada ${found[1]}`;
+  }
+
+  // Default to Jornada 1
+  return 'Jornada 1';
+}
+
+export function getAvailableJornadas(matches: TournamentMatch[]): string[] {
+  if (!matches || matches.length === 0) return ['Jornada 1'];
+  
+  const set = new Set<string>();
+  for (const m of matches) {
+    set.add(getMatchJornada(m));
+  }
+  
+  // Sort jornadas logically: Jornada 1, Jornada 2, etc.
+  return Array.from(set).sort((a, b) => {
+    const numA = parseInt(a.replace(/[^0-9]/g, ''), 10);
+    const numB = parseInt(b.replace(/[^0-9]/g, ''), 10);
+    if (!isNaN(numA) && !isNaN(numB)) {
+      return numA - numB;
+    }
+    return a.localeCompare(b);
+  });
+}
+
+export function getActiveOrLatestJornada(matches: TournamentMatch[]): string {
+  const jornadas = getAvailableJornadas(matches);
+  if (jornadas.length === 0) return 'Jornada 1';
+
+  // 1. Look for a jornada with "live" matches
+  const liveMatch = matches.find(m => m.status === 'live');
+  if (liveMatch) return getMatchJornada(liveMatch);
+
+  // 2. Look for a jornada with "upcoming" matches
+  const upcomingMatch = matches.find(m => m.status === 'upcoming');
+  if (upcomingMatch) return getMatchJornada(upcomingMatch);
+
+  // 3. Otherwise return the latest jornada in chronological order
+  return jornadas[jornadas.length - 1];
+}
 
 export function getMatches(): TournamentMatch[] {
   const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_MATCHES) === 'true';
@@ -892,6 +891,9 @@ export function subscribeQuinielas(callback: (quinielas: QuinielaEntry[]) => voi
           .map(d => ({ ...d.data(), id: d.id } as QuinielaEntry))
           .filter(q => !deletedIds.includes(q.id));
         list.sort((a, b) => b.totalPoints - a.totalPoints || b.exactHitsCount - a.exactHitsCount);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(KEYS.INITIALIZED_QUINIELAS, 'true');
+        }
         setItem(KEYS.QUINIELAS, list);
         callback(list);
       } else {

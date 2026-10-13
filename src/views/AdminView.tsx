@@ -47,6 +47,7 @@ import {
   ArrowLeft,
   Tag,
   ChevronRight,
+  ChevronLeft,
   AlertCircle,
   Sparkles,
   Building2,
@@ -86,7 +87,10 @@ import {
   recalculateAllQuinielas,
   subscribeQuinielas,
   evaluateMatchPrediction,
-  computeTotalQuinielaStats
+  computeTotalQuinielaStats,
+  getMatchJornada,
+  getAvailableJornadas,
+  getActiveOrLatestJornada
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
 import { doc, setDoc } from 'firebase/firestore';
@@ -536,12 +540,50 @@ export const AdminView: React.FC<AdminViewProps> = ({
     awayLogo: academies[1]?.logo || '',
     awayScore: 0,
     status: 'upcoming',
+    jornada: 'Jornada 1',
     liveMinute: "10'",
     referee: '',
     mvp: '',
     summary: ''
   });
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
+  const [adminMatchJornadaFilter, setAdminMatchJornadaFilter] = useState<string>('all');
+  const [adminHasAutoSelectedJornada, setAdminHasAutoSelectedJornada] = useState<boolean>(false);
+  const [adminMatchCategoryFilter, setAdminMatchCategoryFilter] = useState<string>('all');
+  const [adminMatchStatusFilter, setAdminMatchStatusFilter] = useState<string>('all');
+  const [adminMatchSearch, setAdminMatchSearch] = useState<string>('');
+
+  const availableMatchJornadas = useMemo(() => getAvailableJornadas(matches), [matches]);
+
+  // Auto-select active or current jornada for admin upon load to prevent endless list
+  useEffect(() => {
+    if (matches.length > 0 && !adminHasAutoSelectedJornada) {
+      const active = getActiveOrLatestJornada(matches);
+      setAdminMatchJornadaFilter(active);
+      setAdminHasAutoSelectedJornada(true);
+    }
+  }, [matches, adminHasAutoSelectedJornada]);
+
+  const adminFilteredMatches = useMemo(() => {
+    return matches.filter(m => {
+      if (adminMatchJornadaFilter !== 'all') {
+        const j = getMatchJornada(m);
+        if (j !== adminMatchJornadaFilter) return false;
+      }
+      if (adminMatchCategoryFilter !== 'all' && (m.category || 'Sub-15') !== adminMatchCategoryFilter) {
+        return false;
+      }
+      if (adminMatchStatusFilter !== 'all' && m.status !== adminMatchStatusFilter) {
+        return false;
+      }
+      if (adminMatchSearch.trim()) {
+        const query = adminMatchSearch.toLowerCase().trim();
+        const text = `${m.homeAcademyName} ${m.awayAcademyName} ${m.stadium} ${m.phase} ${m.stage}`.toLowerCase();
+        if (!text.includes(query)) return false;
+      }
+      return true;
+    });
+  }, [matches, adminMatchJornadaFilter, adminMatchCategoryFilter, adminMatchStatusFilter, adminMatchSearch]);
 
   // 3. Player Form
   const [playerForm, setPlayerForm] = useState<Partial<Player>>({
@@ -736,6 +778,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       tournamentName: matchForm.tournamentName || 'Torneo Élite EMILIATEX 2026',
       stage: chosenStage,
       phase: matchForm.phase || chosenStage,
+      jornada: matchForm.jornada || 'Jornada 1',
       category: chosenCategory,
       date: matchForm.date || '2026-09-20',
       time: matchForm.time || '16:00',
@@ -2011,14 +2054,51 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </select>
               </div>
 
+              {/* Jornada del Torneo */}
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Detalle de Fase / Jornada:</label>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>Jornada del Torneo: <span className="text-amber-400">*</span></span>
+                  <span className="text-[10px] text-amber-300 font-mono">Para filtro por fechas</span>
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={['Jornada 1', 'Jornada 2', 'Jornada 3', 'Jornada 4', 'Jornada 5', 'Jornada 6', 'Jornada 7', 'Jornada 8', 'Fase Final'].includes(matchForm.jornada || 'Jornada 1') ? (matchForm.jornada || 'Jornada 1') : 'custom'}
+                    onChange={e => {
+                      if (e.target.value !== 'custom') {
+                        setMatchForm({ ...matchForm, jornada: e.target.value });
+                      }
+                    }}
+                    className="flex-1 px-4 py-3 rounded-2xl neu-pressed text-amber-300 font-bold text-xs sm:text-sm border border-[#D4AF37]/50 focus:border-[#D4AF37] focus:outline-none transition-all"
+                  >
+                    <option value="Jornada 1" className="bg-[#12141f]">Jornada 1</option>
+                    <option value="Jornada 2" className="bg-[#12141f]">Jornada 2</option>
+                    <option value="Jornada 3" className="bg-[#12141f]">Jornada 3</option>
+                    <option value="Jornada 4" className="bg-[#12141f]">Jornada 4</option>
+                    <option value="Jornada 5" className="bg-[#12141f]">Jornada 5</option>
+                    <option value="Jornada 6" className="bg-[#12141f]">Jornada 6</option>
+                    <option value="Jornada 7" className="bg-[#12141f]">Jornada 7</option>
+                    <option value="Jornada 8" className="bg-[#12141f]">Jornada 8</option>
+                    <option value="Fase Final" className="bg-[#12141f]">Fase Final / Eliminatoria</option>
+                    <option value="custom" className="bg-[#12141f]">Personalizada...</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={matchForm.jornada || 'Jornada 1'}
+                    onChange={e => setMatchForm({ ...matchForm, jornada: e.target.value })}
+                    placeholder="Ej: Jornada 1"
+                    className="w-32 px-3 py-3 rounded-2xl neu-pressed text-white text-xs sm:text-sm font-bold border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Detalle de Fase / Ronda:</label>
                 <input
                   type="text"
                   required
                   value={matchForm.phase || ''}
                   onChange={e => setMatchForm({ ...matchForm, phase: e.target.value })}
-                  placeholder="Ej: Fase de Grupos - Jornada 3 o Gran Final"
+                  placeholder="Ej: Fase de Grupos - Fecha 1 o Gran Final"
                   className="w-full px-4 py-3 rounded-2xl neu-pressed text-white text-xs sm:text-sm font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all"
                 />
               </div>
@@ -2239,6 +2319,130 @@ export const AdminView: React.FC<AdminViewProps> = ({
               )}
             </div>
 
+            {/* Filter Toolbar for Matches */}
+            {matches.length > 0 && (
+              <div className="space-y-3 p-4 rounded-2xl neu-pressed border border-white/5">
+                {/* Jornada Pill Selector with Prev/Next Navigation */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-white/5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-amber-300 uppercase tracking-wider font-cinzel">
+                      Filtrar por Jornada:
+                    </span>
+                    {adminMatchJornadaFilter !== 'all' && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase font-mono">
+                        {adminMatchJornadaFilter}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setAdminMatchJornadaFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        adminMatchJornadaFilter === 'all'
+                          ? 'neu-btn-gold text-black shadow-md font-black'
+                          : 'neu-pressed text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Todas ({matches.length})
+                    </button>
+                    {availableMatchJornadas.map(j => {
+                      const count = matches.filter(m => getMatchJornada(m) === j).length;
+                      const hasUpcoming = matches.some(m => getMatchJornada(m) === j && (m.status === 'upcoming' || m.status === 'live'));
+                      return (
+                        <button
+                          key={j}
+                          type="button"
+                          onClick={() => setAdminMatchJornadaFilter(j)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            adminMatchJornadaFilter === j
+                              ? 'neu-btn-gold text-black shadow-md font-black'
+                              : 'neu-pressed text-slate-300 hover:text-white'
+                          }`}
+                        >
+                          {hasUpcoming && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                          <span>{j}</span>
+                          <span className="text-[10px] opacity-75 font-mono">({count})</span>
+                        </button>
+                      );
+                    })}
+
+                    {/* Quick Prev / Next arrows */}
+                    {availableMatchJornadas.length > 1 && (
+                      <div className="flex items-center gap-1 ml-auto sm:ml-2">
+                        <button
+                          type="button"
+                          disabled={adminMatchJornadaFilter === 'all' || availableMatchJornadas.indexOf(adminMatchJornadaFilter) <= 0}
+                          onClick={() => {
+                            const idx = availableMatchJornadas.indexOf(adminMatchJornadaFilter);
+                            if (idx > 0) setAdminMatchJornadaFilter(availableMatchJornadas[idx - 1]);
+                          }}
+                          className="p-1.5 rounded-lg neu-pressed text-amber-300 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+                          title="Jornada anterior"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={adminMatchJornadaFilter === 'all' || availableMatchJornadas.indexOf(adminMatchJornadaFilter) >= availableMatchJornadas.length - 1}
+                          onClick={() => {
+                            const idx = availableMatchJornadas.indexOf(adminMatchJornadaFilter);
+                            if (idx >= 0 && idx < availableMatchJornadas.length - 1) {
+                              setAdminMatchJornadaFilter(availableMatchJornadas[idx + 1]);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg neu-pressed text-amber-300 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+                          title="Siguiente jornada"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Secondary Filters: Category, Status, Search */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  <div>
+                    <select
+                      value={adminMatchCategoryFilter}
+                      onChange={e => setAdminMatchCategoryFilter(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl neu-pressed text-xs text-white font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none"
+                    >
+                      <option value="all">Todas las Categorías</option>
+                      {TOURNAMENT_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <select
+                      value={adminMatchStatusFilter}
+                      onChange={e => setAdminMatchStatusFilter(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl neu-pressed text-xs text-white font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none"
+                    >
+                      <option value="all">Todos los Estados</option>
+                      <option value="upcoming">Próximos / Programados</option>
+                      <option value="live">🔴 En Vivo</option>
+                      <option value="finished">Finalizados</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <input
+                      type="text"
+                      value={adminMatchSearch}
+                      onChange={e => setAdminMatchSearch(e.target.value)}
+                      placeholder="Buscar equipo o sede..."
+                      className="w-full px-3 py-2 rounded-xl neu-pressed text-xs text-white placeholder:text-slate-500 font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {matches.length === 0 ? (
               <div className="p-8 text-center neu-pressed rounded-2xl border border-white/5 space-y-2">
                 <Trophy className="w-10 h-10 text-slate-500 mx-auto" />
@@ -2247,12 +2451,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   Has eliminado los partidos predeterminados. Utiliza el formulario superior para programar y publicar los partidos oficiales de tus academias cuando lo desees.
                 </p>
               </div>
+            ) : adminFilteredMatches.length === 0 ? (
+              <div className="p-8 text-center neu-pressed rounded-2xl border border-white/5 space-y-2">
+                <p className="text-sm font-bold text-amber-300">No hay partidos en la jornada o filtros seleccionados</p>
+                <p className="text-xs text-slate-400">
+                  Prueba cambiando el filtro de Jornada o limpiando el buscador.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminMatchJornadaFilter('all');
+                    setAdminMatchCategoryFilter('all');
+                    setAdminMatchStatusFilter('all');
+                    setAdminMatchSearch('');
+                  }}
+                  className="px-4 py-2 rounded-xl neu-btn-gold text-black text-xs font-bold mt-2 cursor-pointer"
+                >
+                  Ver Todos los Partidos
+                </button>
+              </div>
             ) : (
               <div className="space-y-3">
-              {matches.map(m => (
+              {adminFilteredMatches.map(m => (
                 <div key={m.id} className="p-4 sm:p-5 rounded-2xl neu-pressed flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/5 hover:border-[#D4AF37]/30 transition-all">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider font-mono">
+                        {getMatchJornada(m)}
+                      </span>
                       <span className="px-2.5 py-0.5 rounded-full neu-pressed-gold text-amber-300 text-[10px] font-mono font-bold">
                         {m.category || 'Sub-15'}
                       </span>

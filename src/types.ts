@@ -68,6 +68,7 @@ export interface TournamentMatch {
   tournamentName: string;
   phase: string; // e.g. "Fase de Grupos - Fecha 3", "Semifinales"
   stage?: MatchStage | string; // 'Fase de Grupos' | 'Octavos de Final' | 'Cuartos de Final' | 'Semifinales' | 'Gran Final'
+  jornada?: number | string; // e.g. 1, 2, 3 or "Jornada 1", "Cuartos", "Semifinal"
   category?: TournamentCategory | string; // 'Sub-7' | 'Sub-9' | 'Sub-11' | 'Sub-13' | 'Sub-15'
   date: string; // YYYY-MM-DD
   time: string; // HH:mm

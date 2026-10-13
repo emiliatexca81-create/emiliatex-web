@@ -69,7 +69,8 @@ service cloud.firestore {
              (!('summary' in data) || (data.summary is string && data.summary.size() <= 2000)) &&
              (!('referee' in data) || (data.referee is string && data.referee.size() <= 150)) &&
              (!('lineups' in data) || data.lineups is map) &&
-             (!('events' in data) || data.events is list);
+             (!('events' in data) || data.events is list) &&
+             (!('jornada' in data) || data.jornada is number || (data.jornada is string && data.jornada.size() <= 50));
     }
 
     function isValidPlayer(data) {

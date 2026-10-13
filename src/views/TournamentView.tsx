@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage } from '../types';
 import { NavPage } from '../components/Navbar';
-import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, Activity, Filter, CheckCircle, Sparkles } from 'lucide-react';
+import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers } from 'lucide-react';
+import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada } from '../services/storage';
 
 interface TournamentViewProps {
   matches: TournamentMatch[];
@@ -25,9 +26,14 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   const [standingsCategory, setStandingsCategory] = useState<'all' | TournamentCategory>('all');
 
   // Match filters state
+  const availableJornadas = useMemo(() => getAvailableJornadas(matches), [matches]);
+  const [matchJornadaFilter, setMatchJornadaFilter] = useState<string>('all');
   const [matchStatusFilter, setMatchStatusFilter] = useState<'all' | 'live' | 'upcoming' | 'finished'>('all');
   const [matchCategoryFilter, setMatchCategoryFilter] = useState<'all' | TournamentCategory>('all');
   const [matchStageFilter, setMatchStageFilter] = useState<'all' | MatchStage>('all');
+  const [matchSearch, setMatchSearch] = useState<string>('');
+  const [viewGrouping, setViewGrouping] = useState<'grouped' | 'list'>('grouped');
+  const [hasAutoSelectedJornada, setHasAutoSelectedJornada] = useState<boolean>(false);
 
   // Scorers & Academies filters
   const [scorerCategoryFilter, setScorerCategoryFilter] = useState<'all' | TournamentCategory>('all');
@@ -35,9 +41,23 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
 
   const liveMatch = matches.find(m => m.status === 'live');
 
+  // Auto-select the active / current jornada upon initial load to prevent an endless list
+  useEffect(() => {
+    if (matches.length > 0 && !hasAutoSelectedJornada) {
+      const active = getActiveOrLatestJornada(matches);
+      setMatchJornadaFilter(active);
+      setHasAutoSelectedJornada(true);
+    }
+  }, [matches, hasAutoSelectedJornada]);
+
   // Filtered matches
   const filteredMatches = useMemo(() => {
     return matches.filter(m => {
+      // Jornada filter
+      if (matchJornadaFilter !== 'all') {
+        const j = getMatchJornada(m);
+        if (j !== matchJornadaFilter) return false;
+      }
       // Status filter
       if (matchStatusFilter !== 'all' && m.status !== matchStatusFilter) return false;
       // Category filter
@@ -50,9 +70,15 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         const stage = m.stage || m.phase;
         if (stage !== matchStageFilter && !stage.includes(matchStageFilter)) return false;
       }
+      // Text search
+      if (matchSearch.trim()) {
+        const q = matchSearch.toLowerCase().trim();
+        const text = `${m.homeAcademyName} ${m.awayAcademyName} ${m.stadium} ${m.category || ''} ${m.stage || ''} ${m.phase || ''}`.toLowerCase();
+        if (!text.includes(q)) return false;
+      }
       return true;
     });
-  }, [matches, matchStatusFilter, matchCategoryFilter, matchStageFilter]);
+  }, [matches, matchJornadaFilter, matchStatusFilter, matchCategoryFilter, matchStageFilter, matchSearch]);
 
   // Filtered top scorers
   const filteredScorers = useMemo(() => {
@@ -489,99 +515,500 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         </div>
       )}
 
-      {/* TAB 2: MATCHES & FIXTURE */}
+      {/* TAB 2: MATCHES & FIXTURE - JORNADA A JORNADA */}
       {activeTab === 'matches' && (
         <div className="space-y-6">
-          {/* Match Multi-Level Filters */}
-          <div className="p-4 sm:p-5 rounded-3xl neu-card space-y-4">
-            {/* Status Filter */}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estado de los Partidos:</span>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {[
-                  { id: 'all', label: 'Todos' },
-                  { id: 'live', label: 'En Vivo' },
-                  { id: 'upcoming', label: 'Próximos' },
-                  { id: 'finished', label: 'Finalizados' },
-                ].map(filter => (
-                  <button
-                    key={filter.id}
-                    onClick={() => setMatchStatusFilter(filter.id as any)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      matchStatusFilter === filter.id
-                        ? 'neu-pressed-gold text-[#D4AF37]'
-                        : 'neu-card text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
+          {/* Navegador Principal de Jornadas */}
+          <div className="rounded-3xl neu-card-gold p-5 sm:p-7 space-y-5 shadow-2xl border border-[#D4AF37]/40 relative overflow-hidden">
+            {/* Ambient subtle glow */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/5 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Top Bar: Title, Active Jornada Indicator, and Prev/Next Paging */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0 shadow-md">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h3 className="text-base sm:text-xl font-black font-cinzel text-white">
+                      Fixture Oficial por Jornada
+                    </h3>
+                    <span className="px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black text-xs font-black uppercase font-mono shadow-sm">
+                      {matchJornadaFilter === 'all' ? 'Todas las Jornadas' : matchJornadaFilter}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Navega fecha a fecha sin listas interminables o agrupa los partidos por jornada oficial.
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Prev / Next Jornada Navigation Controls */}
+              {availableJornadas.length > 1 && (
+                <div className="flex items-center gap-2 shrink-0 self-start md:self-auto">
+                  {(() => {
+                    const curIdx = availableJornadas.indexOf(matchJornadaFilter);
+                    const isAll = matchJornadaFilter === 'all';
+                    const hasPrev = !isAll && curIdx > 0;
+                    const hasNext = !isAll && curIdx < availableJornadas.length - 1;
+
+                    return (
+                      <div className="flex items-center gap-2 bg-black/40 p-1.5 rounded-2xl border border-white/10">
+                        <button
+                          type="button"
+                          disabled={!hasPrev && !isAll}
+                          onClick={() => {
+                            if (isAll) {
+                              setMatchJornadaFilter(availableJornadas[0]);
+                            } else if (hasPrev) {
+                              setMatchJornadaFilter(availableJornadas[curIdx - 1]);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl neu-pressed text-xs font-bold text-amber-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                          title="Jornada anterior"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Anterior</span>
+                        </button>
+
+                        <span className="text-xs text-slate-300 font-mono font-bold px-2">
+                          {isAll ? 'General' : `${curIdx + 1} / ${availableJornadas.length}`}
+                        </span>
+
+                        <button
+                          type="button"
+                          disabled={!hasNext && !isAll}
+                          onClick={() => {
+                            if (isAll) {
+                              setMatchJornadaFilter(availableJornadas[0]);
+                            } else if (hasNext) {
+                              setMatchJornadaFilter(availableJornadas[curIdx + 1]);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl neu-pressed text-xs font-bold text-amber-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                          title="Siguiente jornada"
+                        >
+                          <span className="hidden sm:inline">Siguiente</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Jornada Pill Carousel / Dock */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="font-extrabold uppercase tracking-wider text-[11px] text-amber-300/90 flex items-center gap-1.5">
+                  <Filter className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Seleccionar Jornada:</span>
+                </span>
+
+                {matchJornadaFilter === 'all' && (
+                  <div className="flex items-center gap-1.5 text-[11px]">
+                    <span className="text-slate-400">Vista:</span>
+                    <button
+                      type="button"
+                      onClick={() => setViewGrouping(prev => prev === 'grouped' ? 'list' : 'grouped')}
+                      className="px-2.5 py-0.5 rounded-lg neu-pressed text-amber-300 font-bold hover:text-white flex items-center gap-1 cursor-pointer"
+                    >
+                      <Layers className="w-3 h-3" />
+                      <span>{viewGrouping === 'grouped' ? 'Agrupado por Jornada' : 'Lista continua'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth pb-1 pt-1 -mx-2 px-2 sm:mx-0 sm:px-0">
+                <button
+                  type="button"
+                  onClick={() => setMatchJornadaFilter('all')}
+                  className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer flex items-center gap-2 ${
+                    matchJornadaFilter === 'all'
+                      ? 'neu-btn-gold text-black shadow-lg font-black scale-102'
+                      : 'neu-pressed text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>Todas las Jornadas ({matches.length})</span>
+                </button>
+
+                {availableJornadas.map(j => {
+                  const jMatches = matches.filter(m => getMatchJornada(m) === j);
+                  const isFinished = jMatches.length > 0 && jMatches.every(m => m.status === 'finished');
+                  const isLive = jMatches.some(m => m.status === 'live');
+                  const hasUpcoming = jMatches.some(m => m.status === 'upcoming');
+                  const isSelected = matchJornadaFilter === j;
+
+                  return (
+                    <button
+                      key={j}
+                      type="button"
+                      onClick={() => setMatchJornadaFilter(j)}
+                      className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer flex items-center gap-2 ${
+                        isSelected
+                          ? 'neu-btn-gold text-black shadow-lg font-black scale-102'
+                          : 'neu-pressed text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {isLive ? (
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                      ) : isFinished ? (
+                        <CheckCircle2 className={`w-3.5 h-3.5 ${isSelected ? 'text-black' : 'text-emerald-400'}`} />
+                      ) : hasUpcoming ? (
+                        <Clock className={`w-3.5 h-3.5 ${isSelected ? 'text-black' : 'text-amber-400'}`} />
+                      ) : null}
+
+                      <span>{j}</span>
+
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                        isSelected ? 'bg-black text-amber-300' : 'bg-black/40 text-slate-300'
+                      }`}>
+                        {jMatches.length}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Category & Stage Filters */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-              {/* Category Filter */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-400 shrink-0">Categoría:</span>
-                <select
-                  value={matchCategoryFilter}
-                  onChange={e => setMatchCategoryFilter(e.target.value as any)}
-                  className="w-full px-3 py-2 rounded-xl neu-pressed text-amber-300 text-xs font-bold focus:border-[#D4AF37] focus:outline-none cursor-pointer"
-                >
-                  <option value="all" className="bg-[#0e1017]">Todas las Categorías (Sub-7 a Sub-15)</option>
-                  {TOURNAMENT_CATEGORIES.map(cat => (
-                    <option key={cat} value={cat} className="bg-[#0e1017]">{cat}</option>
+            {/* Secondary Multi-Filters: Status, Category, Stage & Live Search */}
+            <div className="pt-3 border-t border-white/10 space-y-3">
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+                {/* Status Badges */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Estado:</span>
+                  {[
+                    { id: 'all', label: 'Todos' },
+                    { id: 'live', label: '🔴 En Vivo' },
+                    { id: 'upcoming', label: 'Próximos' },
+                    { id: 'finished', label: 'Finalizados' },
+                  ].map(filter => (
+                    <button
+                      key={filter.id}
+                      onClick={() => setMatchStatusFilter(filter.id as any)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        matchStatusFilter === filter.id
+                          ? 'neu-btn-gold text-black font-black'
+                          : 'neu-pressed text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
                   ))}
-                </select>
+                </div>
+
+                {/* Live Text Search */}
+                <div className="relative min-w-[220px]">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={matchSearch}
+                    onChange={e => setMatchSearch(e.target.value)}
+                    placeholder="Buscar academia o cancha..."
+                    className="w-full pl-9 pr-8 py-2 rounded-xl neu-pressed bg-transparent border border-white/10 text-white placeholder:text-slate-500 text-xs focus:outline-none focus:border-amber-400/50"
+                  />
+                  {matchSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setMatchSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {/* Stage Filter */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-400 shrink-0">Fase:</span>
-                <select
-                  value={matchStageFilter}
-                  onChange={e => setMatchStageFilter(e.target.value as any)}
-                  className="w-full px-3 py-2 rounded-xl neu-pressed text-white text-xs font-bold focus:border-[#D4AF37] focus:outline-none cursor-pointer"
-                >
-                  <option value="all" className="bg-[#0e1017]">Todas las Fases (Grupos a Final)</option>
-                  {MATCH_STAGES.map(stg => (
-                    <option key={stg} value={stg} className="bg-[#0e1017]">{stg}</option>
-                  ))}
-                </select>
+              {/* Category & Stage Dropdowns */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400 shrink-0">Categoría:</span>
+                  <select
+                    value={matchCategoryFilter}
+                    onChange={e => setMatchCategoryFilter(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl neu-pressed text-amber-300 text-xs font-bold focus:border-[#D4AF37] focus:outline-none cursor-pointer border border-white/10"
+                  >
+                    <option value="all" className="bg-[#0e1017]">Todas las Categorías (Sub-7 a Sub-15)</option>
+                    {TOURNAMENT_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat} className="bg-[#0e1017]">{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400 shrink-0">Fase:</span>
+                  <select
+                    value={matchStageFilter}
+                    onChange={e => setMatchStageFilter(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl neu-pressed text-white text-xs font-bold focus:border-[#D4AF37] focus:outline-none cursor-pointer border border-white/10"
+                  >
+                    <option value="all" className="bg-[#0e1017]">Todas las Fases (Grupos a Final)</option>
+                    {MATCH_STAGES.map(stg => (
+                      <option key={stg} value={stg} className="bg-[#0e1017]">{stg}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
 
+          {/* Matches List: Either Empty State, Grouped by Jornada, or Single Focused Jornada */}
           {filteredMatches.length === 0 ? (
-            <div className="p-12 text-center rounded-3xl neu-card text-slate-400 text-xs space-y-2">
-              <Calendar className="w-8 h-8 text-slate-600 mx-auto" />
-              <p className="font-bold text-white font-cinzel">No se encontraron partidos con los filtros seleccionados</p>
-              <p className="text-slate-500">Prueba cambiando la categoría, fase o estado del partido.</p>
+            <div className="p-12 text-center rounded-3xl neu-card text-slate-400 text-xs space-y-3 border border-white/10">
+              <Calendar className="w-10 h-10 text-slate-600 mx-auto" />
+              <p className="font-bold text-white font-cinzel text-sm sm:text-base">
+                No se encontraron partidos con los filtros seleccionados
+              </p>
+              <p className="text-slate-400 max-w-md mx-auto">
+                No hay partidos que coincidan con la jornada "{matchJornadaFilter}", categoría o búsqueda actual.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setMatchJornadaFilter('all');
+                  setMatchStatusFilter('all');
+                  setMatchCategoryFilter('all');
+                  setMatchStageFilter('all');
+                  setMatchSearch('');
+                }}
+                className="px-5 py-2.5 rounded-xl neu-btn-gold text-black font-black text-xs cursor-pointer shadow-lg inline-flex items-center gap-2"
+              >
+                <span>Restablecer Filtros y Ver Todos</span>
+              </button>
+            </div>
+          ) : matchJornadaFilter === 'all' && viewGrouping === 'grouped' ? (
+            /* GROUPED BY JORNADA: Eliminates the endless list by organizing into clear sections */
+            <div className="space-y-8">
+              {availableJornadas.map(jornada => {
+                const matchesInJornada = filteredMatches.filter(m => getMatchJornada(m) === jornada);
+                if (matchesInJornada.length === 0) return null;
+
+                const isFinished = matchesInJornada.every(m => m.status === 'finished');
+                const isLive = matchesInJornada.some(m => m.status === 'live');
+
+                return (
+                  <div key={jornada} className="space-y-4">
+                    {/* Jornada Group Header Banner */}
+                    <div className="p-4 sm:p-5 rounded-2xl neu-card bg-gradient-to-r from-[#171926] via-[#12141f] to-[#171926] border border-amber-400/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                      <div className="flex items-center gap-3">
+                        <span className="px-3.5 py-1.5 rounded-xl neu-btn-gold text-black font-black text-xs sm:text-sm uppercase tracking-wider font-mono">
+                          {jornada}
+                        </span>
+                        <div>
+                          <h4 className="text-sm sm:text-base font-black font-cinzel text-white flex items-center gap-2">
+                            <span>{matchesInJornada.length} {matchesInJornada.length === 1 ? 'Partido Programado' : 'Partidos Programados'}</span>
+                          </h4>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                            {isLive ? (
+                              <span className="text-red-400 font-bold flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                                <span>Partidos en juego ahora mismo</span>
+                              </span>
+                            ) : isFinished ? (
+                              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>Jornada concluida (Resultados oficiales)</span>
+                              </span>
+                            ) : (
+                              <span className="text-amber-300 font-medium flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-amber-400" />
+                                <span>Jornada en disputa / próxima</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setMatchJornadaFilter(jornada)}
+                        className="px-3.5 py-1.5 rounded-xl neu-pressed text-amber-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
+                      >
+                        <span>Ver únicamente {jornada}</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Matches Grid for this Jornada */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {matchesInJornada.map((match, idx) => (
+                        <motion.div
+                          key={match.id}
+                          initial={{ opacity: 0, y: 14 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3, delay: Math.min(idx * 0.04, 0.2) }}
+                          whileHover={{ y: -3, transition: { duration: 0.15 } }}
+                          onClick={() => onSelectMatch?.(match)}
+                          className={`rounded-3xl p-5 sm:p-6 transition-all cursor-pointer group hover:border-[#D4AF37]/60 ${
+                            match.status === 'live'
+                              ? 'neu-card-gold ring-1 ring-red-500/60 shadow-[0_0_25px_rgba(239,68,68,0.2)]'
+                              : 'neu-card'
+                          }`}
+                        >
+                          {/* Top Bar: Jornada, Category & Stage Badges */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/5 text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-2 py-0.5 rounded-md neu-btn-gold text-black font-black text-[10px] uppercase font-mono">
+                                {getMatchJornada(match)}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md neu-pressed text-amber-300 font-black text-[10px] uppercase border border-[#D4AF37]/30">
+                                {match.category || 'Sub-15'}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded-md border text-[10px] font-bold ${getStageBadgeColor(match.stage || match.phase)}`}>
+                                {match.stage || match.phase}
+                              </span>
+                            </div>
+
+                            {match.status === 'live' ? (
+                              <span className="px-2.5 py-1 rounded-full bg-red-500 text-white font-black text-[10px] uppercase flex items-center gap-1 shadow-[0_0_10px_rgba(239,68,68,0.5)]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                                EN VIVO • {match.liveMinute}
+                              </span>
+                            ) : match.status === 'finished' ? (
+                              <span className="px-2.5 py-1 rounded-xl neu-pressed text-emerald-400 text-[10px] font-bold">
+                                FINALIZADO
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-xl neu-pressed text-amber-300 text-[10px] font-bold">
+                                {match.date} • {match.time}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Teams & Score Display */}
+                          <div className="py-5 grid grid-cols-7 items-center">
+                            {/* Home Team */}
+                            <div className="col-span-3 flex flex-col items-center text-center space-y-2">
+                              <div className="w-14 h-14 rounded-2xl neu-card p-1.5 flex items-center justify-center border border-amber-400/30 group-hover:scale-105 transition-transform">
+                                <img
+                                  src={match.homeLogo}
+                                  alt={match.homeAcademyName}
+                                  className="w-full h-full object-contain rounded-xl"
+                                />
+                              </div>
+                              <span className="text-xs sm:text-sm font-extrabold text-white leading-tight line-clamp-2">
+                                {match.homeAcademyName}
+                              </span>
+                            </div>
+
+                            {/* Score or VS */}
+                            <div className="col-span-1 flex flex-col items-center justify-center">
+                              {match.status === 'upcoming' ? (
+                                <span className="px-2.5 py-1 rounded-xl neu-pressed text-amber-400 font-black text-xs">
+                                  VS
+                                </span>
+                              ) : (
+                                <div className="px-3 py-1.5 rounded-2xl neu-pressed flex items-center gap-2 font-cinzel text-xl sm:text-2xl font-black text-amber-300">
+                                  <span>{match.homeScore ?? 0}</span>
+                                  <span className="text-slate-500">:</span>
+                                  <span>{match.awayScore ?? 0}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Away Team */}
+                            <div className="col-span-3 flex flex-col items-center text-center space-y-2">
+                              <div className="w-14 h-14 rounded-2xl neu-card p-1.5 flex items-center justify-center border border-amber-400/30 group-hover:scale-105 transition-transform">
+                                <img
+                                  src={match.awayLogo}
+                                  alt={match.awayAcademyName}
+                                  className="w-full h-full object-contain rounded-xl"
+                                />
+                              </div>
+                              <span className="text-xs sm:text-sm font-extrabold text-white leading-tight line-clamp-2">
+                                {match.awayAcademyName}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Match Details Footer */}
+                          <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-[#D4AF37]" />
+                              <span className="truncate">{match.stadium}</span>
+                            </div>
+
+                            {match.mvp && (
+                              <div className="flex items-center gap-1 text-amber-300 font-bold text-[11px] px-2 py-0.5 rounded-lg neu-pressed">
+                                <Star className="w-3 h-3 fill-current text-[#D4AF37]" />
+                                <span>MVP: {match.mvp}</span>
+                              </div>
+                            )}
+
+                            {match.status === 'live' && (
+                              <span className="text-red-400 font-bold flex items-center gap-1.5 text-[11px]">
+                                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                                <span>En disputa ahora</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Click CTA for Details & Lineups */}
+                          <div className="mt-3 pt-2.5 border-t border-white/5 flex items-center justify-between text-[11px]">
+                            <span className="text-[#D4AF37] font-extrabold group-hover:text-amber-200 flex items-center gap-1">
+                              <span>Ficha Táctica, Incidencias & Alineaciones</span>
+                              <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                            </span>
+                            <span className="text-[10px] text-slate-400 neu-pressed px-2.5 py-1 rounded-lg">
+                              {match.lineups?.homeStarters?.length ? 'Alineación disponible' : 'Ficha completa'}
+                            </span>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {filteredMatches.map((match, idx) => (
-                <motion.div
-                  key={match.id}
-                  initial={{ opacity: 0, y: 18, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{
-                    duration: 0.35,
-                    delay: Math.min(idx * 0.05, 0.3),
-                    ease: [0.16, 1, 0.3, 1]
-                  }}
-                  whileHover={{ y: -4, transition: { duration: 0.2 } }}
-                  onClick={() => onSelectMatch?.(match)}
-                  className={`rounded-3xl p-5 sm:p-6 transition-all cursor-pointer group hover:border-[#D4AF37]/60 ${
-                    match.status === 'live'
-                      ? 'neu-card-gold ring-1 ring-red-500/60 shadow-[0_0_25px_rgba(239,68,68,0.2)]'
-                      : 'neu-card'
-                  }`}
-                >
-                    {/* Top Bar: Category & Stage Badges */}
+            /* FOCUSED JORNADA GRID */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-2">
+                <span className="text-xs font-bold text-slate-400">
+                  Mostrando <span className="text-amber-300 font-black">{filteredMatches.length}</span> {filteredMatches.length === 1 ? 'partido' : 'partidos'} en {matchJornadaFilter === 'all' ? 'todas las jornadas' : matchJornadaFilter}
+                </span>
+
+                {matchJornadaFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setMatchJornadaFilter('all')}
+                    className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Ver todas las jornadas</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {filteredMatches.map((match, idx) => (
+                  <motion.div
+                    key={match.id}
+                    initial={{ opacity: 0, y: 16, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{
+                      duration: 0.35,
+                      delay: Math.min(idx * 0.05, 0.3),
+                      ease: [0.16, 1, 0.3, 1]
+                    }}
+                    whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                    onClick={() => onSelectMatch?.(match)}
+                    className={`rounded-3xl p-5 sm:p-6 transition-all cursor-pointer group hover:border-[#D4AF37]/60 ${
+                      match.status === 'live'
+                        ? 'neu-card-gold ring-1 ring-red-500/60 shadow-[0_0_25px_rgba(239,68,68,0.2)]'
+                        : 'neu-card'
+                    }`}
+                  >
+                    {/* Top Bar: Jornada, Category & Stage Badges */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/5 text-xs">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-md neu-btn-gold text-black font-black text-[10px] uppercase font-mono">
+                          {getMatchJornada(match)}
+                        </span>
                         <span className="px-2.5 py-0.5 rounded-lg neu-pressed text-amber-300 font-black text-[10px] uppercase border border-[#D4AF37]/30">
                           {match.category || 'Sub-15'}
                         </span>
@@ -686,6 +1113,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                     </div>
                   </motion.div>
                 ))}
+              </div>
             </div>
           )}
         </div>
