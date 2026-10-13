@@ -246,6 +246,15 @@ export async function saveMatch(match: TournamentMatch): Promise<TournamentMatch
     handleFirestoreError(err, OperationType.WRITE, `matches/${match.id}`);
   }
 
+  // Automatically recalculate and sync all quiniela participants when a match is saved
+  try {
+    recalculateAllQuinielas(updated).catch(err => {
+      console.warn('Auto recalculate quinielas error:', err);
+    });
+  } catch (err) {
+    // non-blocking
+  }
+
   return updated;
 }
 
@@ -649,17 +658,32 @@ export function evaluateMatchPrediction(
   prediction: MatchPredictionScore | undefined,
   actualMatch: TournamentMatch
 ): MatchPointsResult {
-  if (!prediction || actualMatch.status !== 'finished' || actualMatch.homeScore === undefined || actualMatch.awayScore === undefined) {
+  if (!prediction) {
+    return { exactHit: false, outcomeHit: false, points: 0, description: 'Sin pronóstico' };
+  }
+
+  // A match is evaluated if it is finished or live with recorded scores
+  const homeScoreValid = actualMatch.homeScore !== undefined && actualMatch.homeScore !== null && !isNaN(Number(actualMatch.homeScore));
+  const awayScoreValid = actualMatch.awayScore !== undefined && actualMatch.awayScore !== null && !isNaN(Number(actualMatch.awayScore));
+  const isFinished = actualMatch.status === 'finished';
+  const isEvaluated = isFinished || (actualMatch.status === 'live' && homeScoreValid && awayScoreValid);
+
+  if (!isEvaluated || !homeScoreValid || !awayScoreValid) {
     return { exactHit: false, outcomeHit: false, points: 0, description: 'Pendiente' };
   }
 
-  const exact = prediction.homeScore === actualMatch.homeScore && prediction.awayScore === actualMatch.awayScore;
+  const predHome = Number(prediction.homeScore ?? 0);
+  const predAway = Number(prediction.awayScore ?? 0);
+  const actualHome = Number(actualMatch.homeScore ?? 0);
+  const actualAway = Number(actualMatch.awayScore ?? 0);
+
+  const exact = predHome === actualHome && predAway === actualAway;
   if (exact) {
     return { exactHit: true, outcomeHit: true, points: 5, description: '¡Marcador Exacto (+5 pts)!' };
   }
 
-  const predictedOutcome = Math.sign(prediction.homeScore - prediction.awayScore);
-  const actualOutcome = Math.sign(actualMatch.homeScore - actualMatch.awayScore);
+  const predictedOutcome = Math.sign(predHome - predAway);
+  const actualOutcome = Math.sign(actualHome - actualAway);
 
   if (predictedOutcome === actualOutcome) {
     return { exactHit: false, outcomeHit: true, points: 2, description: '¡Acierto Ganador/Empate (+2 pts)!' };
@@ -669,12 +693,16 @@ export function evaluateMatchPrediction(
 }
 
 export function computeTotalQuinielaStats(
-  predictions: Record<string, MatchPredictionScore>,
+  predictions: Record<string, MatchPredictionScore> | undefined,
   matches: TournamentMatch[]
 ): { totalPoints: number; exactHitsCount: number; outcomeHitsCount: number } {
   let totalPoints = 0;
   let exactHitsCount = 0;
   let outcomeHitsCount = 0;
+
+  if (!predictions) {
+    return { totalPoints: 0, exactHitsCount: 0, outcomeHitsCount: 0 };
+  }
 
   for (const match of matches) {
     const pred = predictions[match.id];
@@ -801,9 +829,28 @@ export async function deleteSampleQuinielas(): Promise<QuinielaEntry[]> {
   return updated;
 }
 
-export async function recalculateAllQuinielas(matches: TournamentMatch[]): Promise<QuinielaEntry[]> {
-  const current = getQuinielas();
-  const updated = current.map(entry => {
+export async function recalculateAllQuinielas(
+  matches: TournamentMatch[],
+  entriesList?: QuinielaEntry[]
+): Promise<QuinielaEntry[]> {
+  let sourceEntries = entriesList && entriesList.length > 0 ? [...entriesList] : getQuinielas();
+
+  // If online, fetch from Firestore to guarantee every remote participant is recalculated
+  try {
+    const snap = await getDocs(collection(db, 'quinielas'));
+    if (!snap.empty) {
+      const firestoreList = snap.docs.map(d => ({ ...d.data(), id: d.id } as QuinielaEntry));
+      const deletedIds = getDeletedQuinielaIds();
+      const map = new Map<string, QuinielaEntry>();
+      firestoreList.filter(q => !deletedIds.includes(q.id)).forEach(q => map.set(q.id, q));
+      sourceEntries.filter(q => !deletedIds.includes(q.id)).forEach(q => map.set(q.id, q));
+      sourceEntries = Array.from(map.values());
+    }
+  } catch (err) {
+    console.warn('Could not fetch remote quinielas during recalculate:', err);
+  }
+
+  const updated = sourceEntries.map(entry => {
     const stats = computeTotalQuinielaStats(entry.predictions, matches);
     return {
       ...entry,
@@ -814,7 +861,13 @@ export async function recalculateAllQuinielas(matches: TournamentMatch[]): Promi
     };
   });
 
-  updated.sort((a, b) => b.totalPoints - a.totalPoints || b.exactHitsCount - a.exactHitsCount);
+  updated.sort((a, b) => 
+    b.totalPoints - a.totalPoints || 
+    b.exactHitsCount - a.exactHitsCount || 
+    b.outcomeHitsCount - a.outcomeHitsCount ||
+    a.userName.localeCompare(b.userName)
+  );
+
   setItem(KEYS.QUINIELAS, updated);
 
   for (const entry of updated) {

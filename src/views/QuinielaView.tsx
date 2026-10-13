@@ -21,7 +21,9 @@ import {
   HelpCircle, 
   TrendingUp, 
   Medal,
-  RefreshCw
+  RefreshCw,
+  Eye,
+  X
 } from 'lucide-react';
 import { 
   getQuinielas, 
@@ -32,7 +34,8 @@ import {
   evaluateMatchPrediction, 
   computeTotalQuinielaStats, 
   formatWhatsAppLink, 
-  getSettings 
+  getSettings,
+  recalculateAllQuinielas
 } from '../services/storage';
 
 interface QuinielaViewProps {
@@ -57,8 +60,10 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
   // Predictions state: matchId -> { homeScore, awayScore }
   const [predictions, setPredictions] = useState<Record<string, MatchPredictionScore>>({});
   
-  // Global Quiniela Leaderboard
-  const [leaderboard, setLeaderboard] = useState<QuinielaEntry[]>([]);
+  // Raw Quiniela records from storage & Firestore
+  const [rawQuinielas, setRawQuinielas] = useState<QuinielaEntry[]>([]);
+  const [inspectingParticipant, setInspectingParticipant] = useState<QuinielaEntry | null>(null);
+  const [isManualRecalculating, setIsManualRecalculating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -74,13 +79,52 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
       }
     }
 
-    setLeaderboard(getQuinielas());
+    setRawQuinielas(getQuinielas());
     const unsubscribe = subscribeQuinielas((updatedList) => {
-      setLeaderboard(updatedList);
+      setRawQuinielas(updatedList);
     });
 
     return () => unsubscribe();
   }, []);
+
+  // REAL-TIME DYNAMIC LEADERBOARD:
+  // Dynamically computes points, exact hits (+5) and outcome hits (+2)
+  // for EVERY participant against all current tournament matches!
+  const leaderboard = useMemo(() => {
+    const list = rawQuinielas.map(entry => {
+      const stats = computeTotalQuinielaStats(entry.predictions || {}, matches);
+      return {
+        ...entry,
+        totalPoints: stats.totalPoints,
+        exactHitsCount: stats.exactHitsCount,
+        outcomeHitsCount: stats.outcomeHitsCount,
+      };
+    });
+
+    list.sort((a, b) => 
+      b.totalPoints - a.totalPoints || 
+      b.exactHitsCount - a.exactHitsCount || 
+      b.outcomeHitsCount - a.outcomeHitsCount ||
+      a.userName.localeCompare(b.userName)
+    );
+
+    return list;
+  }, [rawQuinielas, matches]);
+
+  // Keep Firestore persisted points in sync in the background if matches were updated
+  useEffect(() => {
+    if (matches.length > 0 && rawQuinielas.length > 0) {
+      const hasStale = rawQuinielas.some(q => {
+        const stats = computeTotalQuinielaStats(q.predictions || {}, matches);
+        return stats.totalPoints !== q.totalPoints || stats.exactHitsCount !== q.exactHitsCount;
+      });
+      if (hasStale) {
+        recalculateAllQuinielas(matches, rawQuinielas).then(updated => {
+          setRawQuinielas(updated);
+        }).catch(() => {});
+      }
+    }
+  }, [matches, rawQuinielas]);
 
   // Compute live user stats based on their predictions & current match states
   const userLiveStats = useMemo(() => {
@@ -193,7 +237,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
 
       // Save to Firestore and state
       const updatedList = await saveQuiniela(entry);
-      setLeaderboard(updatedList);
+      setRawQuinielas(updatedList);
 
       setSubmittedSuccess(true);
       setTimeout(() => setSubmittedSuccess(false), 6000);
@@ -208,7 +252,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
   // WhatsApp share
   const handleShareWhatsApp = () => {
     if (!userName.trim()) {
-      alert('Por favor escribe tu nombre primero.');
+      setValidationError('Por favor ingresa tu nombre primero en la pestaña de Pronósticos.');
       return;
     }
 
@@ -812,6 +856,27 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={async () => {
+                    setIsManualRecalculating(true);
+                    try {
+                      const updated = await recalculateAllQuinielas(matches, rawQuinielas);
+                      setRawQuinielas(updated);
+                    } catch (err) {
+                      console.warn('Error recalculando:', err);
+                    } finally {
+                      setIsManualRecalculating(false);
+                    }
+                  }}
+                  disabled={isManualRecalculating}
+                  className="px-3.5 py-2 rounded-xl neu-card text-amber-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border border-[#D4AF37]/30 active:scale-95 disabled:opacity-50"
+                  title="Recalcular puntuaciones con los marcadores más recientes de la jornada"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isManualRecalculating ? 'animate-spin text-amber-400' : 'text-[#D4AF37]'}`} />
+                  <span>{isManualRecalculating ? 'Calculando...' : 'Actualizar'}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     const newUrl = `${window.location.pathname}?page=admin&adminSection=view_quinielas`;
                     window.history.pushState(null, '', newUrl);
@@ -844,6 +909,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
                     <th className="py-3.5 px-4 text-center">Exactos (+5)</th>
                     <th className="py-3.5 px-4 text-center">Simples (+2)</th>
                     <th className="py-3.5 px-4 text-center font-black text-amber-300">TOTAL PTS</th>
+                    <th className="py-3.5 px-4 text-center">Detalle</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -893,6 +959,16 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
                         <td className="py-3.5 px-4 text-center font-black font-cinzel text-amber-300 text-lg">
                           {entry.totalPoints}
                         </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setInspectingParticipant(entry)}
+                            className="p-2 rounded-xl neu-pressed text-amber-300 hover:text-white transition-all cursor-pointer active:scale-95 border border-[#D4AF37]/20 inline-flex items-center justify-center"
+                            title="Ver detalle de pronósticos y aciertos"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -916,6 +992,127 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* INSPECTION MODAL FOR PARTICIPANT PREDICTIONS */}
+      {inspectingParticipant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="bg-[#151722] border border-[#D4AF37]/50 rounded-3xl p-6 sm:p-8 w-full max-w-2xl space-y-5 text-white shadow-2xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0">
+                  <Award className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold font-cinzel text-white">
+                    Pronósticos de {inspectingParticipant.userName}
+                  </h3>
+                  <p className="text-xs text-amber-300 font-mono">
+                    {inspectingParticipant.userPhone ? inspectingParticipant.userPhone.slice(-4) + '****' : 'Participante'} • {inspectingParticipant.totalPoints} Pts Oficiales
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingParticipant(null)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Stats Header */}
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-3 rounded-2xl neu-pressed">
+                <span className="block text-[10px] text-slate-400 font-bold uppercase">Puntos</span>
+                <span className="text-2xl font-black font-cinzel text-amber-300">{inspectingParticipant.totalPoints}</span>
+              </div>
+              <div className="p-3 rounded-2xl neu-pressed">
+                <span className="block text-[10px] text-slate-400 font-bold uppercase">Exactos (+5)</span>
+                <span className="text-2xl font-black text-emerald-400">{inspectingParticipant.exactHitsCount}</span>
+              </div>
+              <div className="p-3 rounded-2xl neu-pressed">
+                <span className="block text-[10px] text-slate-400 font-bold uppercase">Simples (+2)</span>
+                <span className="text-2xl font-black text-amber-400">{inspectingParticipant.outcomeHitsCount}</span>
+              </div>
+            </div>
+
+            {/* List of predictions evaluated against matches */}
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                Desglose Partido por Partido ({Object.keys(inspectingParticipant.predictions || {}).length} pronósticos):
+              </h4>
+
+              {Object.keys(inspectingParticipant.predictions || {}).length === 0 ? (
+                <p className="text-xs text-slate-400 italic p-4 text-center">Este participante no tiene pronósticos registrados.</p>
+              ) : (
+                (Object.entries(inspectingParticipant.predictions || {}) as [string, MatchPredictionScore][]).map(([matchId, pred]) => {
+                  const match = matches.find(m => m.id === matchId);
+                  const evalResult = match ? evaluateMatchPrediction(pred, match) : null;
+
+                  return (
+                    <div key={matchId} className="p-4 rounded-2xl neu-card border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-[10px] text-amber-400 font-bold uppercase">
+                          <span>{match?.category || 'Torneo'}</span>
+                          <span>•</span>
+                          <span>{match?.stage || match?.phase || 'Fase Regular'}</span>
+                        </div>
+                        <p className="text-sm font-black text-white mt-0.5 truncate">
+                          {match ? `${match.homeAcademyName || 'Equipo Local'} vs ${match.awayAcademyName || 'Equipo Visitante'}` : `Partido ID: ${matchId}`}
+                        </p>
+                        {match && (match.status === 'finished' || match.status === 'live') && match.homeScore !== undefined ? (
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Resultado Real: <span className="text-white font-bold">{match.homeScore} - {match.awayScore}</span> {match.status === 'live' ? '(En Vivo)' : '(Finalizado)'}
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-blue-400 mt-0.5">
+                            Estado: {match?.status === 'live' ? 'En Vivo' : 'Por Disputar'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <span className="block text-[10px] text-slate-400 uppercase font-bold">Pronóstico</span>
+                          <span className="text-base font-black text-white font-mono">
+                            {pred.homeScore} - {pred.awayScore}
+                          </span>
+                        </div>
+
+                        <div className="w-28 text-center">
+                          {evalResult ? (
+                            <span className={`inline-block px-2.5 py-1 rounded-xl text-xs font-bold ${
+                              evalResult.exactHit
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : evalResult.outcomeHit
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : 'bg-white/5 text-slate-400'
+                            }`}>
+                              +{evalResult.points} pts
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500">Pendiente</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-white/10 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setInspectingParticipant(null)}
+                className="px-5 py-2.5 rounded-2xl neu-btn-gold text-black text-xs font-bold uppercase tracking-wider cursor-pointer active:scale-95"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

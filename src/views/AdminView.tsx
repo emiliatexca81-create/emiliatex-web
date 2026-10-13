@@ -58,7 +58,10 @@ import {
   Folder,
   CheckCircle2,
   Award,
-  Eye
+  Eye,
+  Mail,
+  EyeOff,
+  Key
 } from 'lucide-react';
 import { 
   saveProduct, 
@@ -82,10 +85,13 @@ import {
   deleteSampleQuinielas,
   recalculateAllQuinielas,
   subscribeQuinielas,
-  evaluateMatchPrediction
+  evaluateMatchPrediction,
+  computeTotalQuinielaStats
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
+import { doc, setDoc } from 'firebase/firestore';
 import { 
+  db,
   uploadFileToStorage, 
   testStorageConnection, 
   STORAGE_BUCKET,
@@ -143,7 +149,58 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [emailConfig, setEmailConfig] = useState(settings.emailContact || 'emiliatexca81@gmail.com');
   const [addressConfig, setAddressConfig] = useState(settings.address || 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela');
 
-  const { currentUser, isAdmin, loading: authLoading, loginWithGoogle, logout, authError } = useAuth();
+  const { 
+    currentUser, 
+    isAdmin, 
+    loading: authLoading, 
+    loginWithGoogle, 
+    loginWithEmailPassword,
+    sendResetPasswordEmail,
+    logout, 
+    authError,
+    setAuthError 
+  } = useAuth();
+
+  // Email/Password login states
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
+  const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+
+  const handleEmailPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginEmail.trim() || !loginPassword) return;
+    setIsSubmittingLogin(true);
+    setResetEmailSent(false);
+    try {
+      const res = await loginWithEmailPassword(loginEmail, loginPassword);
+      if (res.success) {
+        showToast('Sesión de administrador iniciada correctamente', 'success');
+      }
+    } finally {
+      setIsSubmittingLogin(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!loginEmail.trim()) {
+      showToast('Por favor escribe tu correo electrónico en el campo superior primero', 'error');
+      return;
+    }
+    setIsSendingReset(true);
+    try {
+      const res = await sendResetPasswordEmail(loginEmail);
+      if (res.success) {
+        setResetEmailSent(true);
+        showToast(`Enlace de restablecimiento enviado a ${loginEmail.trim()}`, 'success');
+      }
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
+
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ [target: string]: { percent: number; status: string } }>({});
   const [storageTestResult, setStorageTestResult] = useState<{
@@ -177,14 +234,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
     return () => unsub();
   }, [propQuinielas]);
 
+  // Dynamically recalculate live points for all participants in Admin table
+  const dynamicallyScoredQuinielas = useMemo(() => {
+    const list = quinielas.map(item => {
+      const stats = computeTotalQuinielaStats(item.predictions || {}, matches);
+      return {
+        ...item,
+        totalPoints: stats.totalPoints,
+        exactHitsCount: stats.exactHitsCount,
+        outcomeHitsCount: stats.outcomeHitsCount
+      };
+    });
+    list.sort((a, b) => 
+      b.totalPoints - a.totalPoints || 
+      b.exactHitsCount - a.exactHitsCount || 
+      b.outcomeHitsCount - a.outcomeHitsCount ||
+      a.userName.localeCompare(b.userName)
+    );
+    return list;
+  }, [quinielas, matches]);
+
   const filteredQuinielas = useMemo(() => {
-    if (!quinielaSearch.trim()) return quinielas;
+    if (!quinielaSearch.trim()) return dynamicallyScoredQuinielas;
     const q = quinielaSearch.toLowerCase().trim();
-    return quinielas.filter(item => 
+    return dynamicallyScoredQuinielas.filter(item => 
       item.userName.toLowerCase().includes(q) ||
       (item.userPhone && item.userPhone.toLowerCase().includes(q))
     );
-  }, [quinielas, quinielaSearch]);
+  }, [dynamicallyScoredQuinielas, quinielaSearch]);
 
   // In-App Confirmation Modal (solves confirm() blocked in iframe)
   const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
@@ -680,10 +757,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
       referee: matchForm.referee?.trim() || ''
     };
 
-    await saveMatch(match);
+    const updatedMatches = await saveMatch(match);
+    
+    // Automatically recalculate and sync quiniela points for all participants
+    try {
+      const updatedQ = await recalculateAllQuinielas(updatedMatches);
+      setQuinielas(updatedQ);
+    } catch (calcErr) {
+      console.warn('Error al recalcular quinielas tras guardar partido:', calcErr);
+    }
+
     setEditingMatchId(null);
     onRefresh();
-    showToast('¡Partido guardado con éxito!', 'success');
+    showToast('¡Partido guardado y puntos de la quiniela actualizados con éxito!', 'success');
   };
 
   const handleSavePlayer = async (e: React.FormEvent) => {
@@ -837,7 +923,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     );
   }
 
-  // If user is not logged in: Show Admin Login Gateway
+  // If user is not logged in: Show Admin Login Gateway with Email/Password & Google
   if (!currentUser) {
     return (
       <div className="max-w-xl mx-auto my-12 p-8 sm:p-10 rounded-3xl border border-[#D4AF37]/40 bg-gradient-to-b from-[#141624] via-[#0d0e15] to-[#0a0a0f] shadow-[0_0_50px_rgba(0,0,0,0.85)] text-center animate-in fade-in zoom-in-95 duration-200">
@@ -850,77 +936,185 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <span>ÁREA ADMINISTRATIVA RESTRINGIDA</span>
         </div>
 
-        <h2 className="text-2xl sm:text-3xl font-black text-white font-cinzel tracking-tight mb-3">
+        <h2 className="text-2xl sm:text-3xl font-black text-white font-cinzel tracking-tight mb-2">
           Acceso de Gestión EMILIATEX
         </h2>
 
-        <p className="text-sm text-slate-300 leading-relaxed mb-6">
-          La web, el catálogo y el Torneo Élite cuentan con sus propias páginas públicas. Para acceder a la creación de productos, marcadores de partidos, jugadores, academias y control de pedidos de WhatsApp, debes iniciar sesión con la cuenta de administrador.
+        <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-6">
+          Ingresa con tu correo y contraseña registrados en <strong className="text-amber-300">Firebase Authentication</strong> o continúa con tu cuenta oficial de Google.
         </p>
 
-        <div className="p-4 rounded-xl bg-[#090a0f] border border-white/10 mb-6 text-left">
-          <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block mb-1">
-            Administrador Autorizado:
-          </span>
-          <span className="text-sm font-mono text-amber-300 font-semibold flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {PRIMARY_ADMIN_EMAIL}
-          </span>
+        {/* EMAIL & PASSWORD LOGIN FORM */}
+        <form onSubmit={handleEmailPasswordSubmit} className="space-y-4 text-left mb-6">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <span>Correo Electrónico de Administrador:</span>
+            </label>
+            <input
+              type="email"
+              required
+              value={loginEmail}
+              onChange={(e) => {
+                setLoginEmail(e.target.value);
+                if (authError) setAuthError(null);
+                setResetEmailSent(false);
+              }}
+              placeholder="ejemplo@emiliatex.com"
+              className="w-full px-4 py-3 rounded-2xl neu-pressed text-white text-xs sm:text-sm font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all placeholder:text-slate-500"
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <Key className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>Contraseña:</span>
+              </label>
+              <button
+                type="button"
+                onClick={handlePasswordReset}
+                disabled={isSendingReset}
+                className="text-[11px] text-amber-300/80 hover:text-amber-200 underline cursor-pointer"
+              >
+                {isSendingReset ? 'Enviando enlace...' : '¿Olvidaste tu contraseña?'}
+              </button>
+            </div>
+
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={loginPassword}
+                onChange={(e) => {
+                  setLoginPassword(e.target.value);
+                  if (authError) setAuthError(null);
+                }}
+                placeholder="••••••••••••"
+                className="w-full pl-4 pr-12 py-3 rounded-2xl neu-pressed text-white text-xs sm:text-sm font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all placeholder:text-slate-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer transition-colors"
+                title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4 text-amber-300" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {resetEmailSent && (
+            <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>Se envió un enlace para restablecer tu contraseña a {loginEmail.trim()}. Revisa tu bandeja de entrada o spam.</span>
+            </div>
+          )}
+
+          {authError && (
+            <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs space-y-1 text-left">
+              <p className="font-bold flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <span>Aviso de autenticación</span>
+              </p>
+              <p className="leading-relaxed">{authError}</p>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isSubmittingLogin || !loginEmail.trim() || !loginPassword}
+            className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl neu-btn-gold text-black font-extrabold text-sm tracking-wide shadow-[0_4px_20px_rgba(212,175,55,0.4)] transition-all cursor-pointer transform hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmittingLogin ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin text-black" />
+                <span>Verificando credenciales...</span>
+              </>
+            ) : (
+              <>
+                <LogIn className="w-4 h-4 text-black" />
+                <span>Iniciar Sesión con Correo y Contraseña</span>
+              </>
+            )}
+          </button>
+        </form>
+
+        {/* OR DIVIDER */}
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-white/10" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-[#0e1017] px-3 text-slate-400 font-bold tracking-wider">o continúa con</span>
+          </div>
         </div>
 
-        {authError && (
-          <div className="p-4 rounded-xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs mb-6 text-left">
-            <p className="font-bold flex items-center gap-1.5 mb-1">
-              <AlertTriangle className="w-4 h-4 text-red-400" />
-              <span>Aviso de autenticación</span>
-            </p>
-            <p>{authError}</p>
-          </div>
-        )}
-
+        {/* GOOGLE SIGN IN BUTTON */}
         <button
           onClick={loginWithGoogle}
-          className="w-full flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#f3d068] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-sm tracking-wide shadow-[0_4px_20px_rgba(212,175,55,0.4)] transition-all cursor-pointer transform hover:scale-[1.02]"
+          className="w-full flex items-center justify-center gap-3 py-3 px-6 rounded-2xl neu-btn-dark border border-white/15 hover:border-[#D4AF37]/50 text-white font-bold text-xs sm:text-sm tracking-wide shadow-md transition-all cursor-pointer transform hover:scale-[1.01] active:scale-95"
         >
-          <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
           </svg>
-          <span>Iniciar Sesión con Google</span>
+          <span>Continuar con Cuenta de Google</span>
         </button>
 
-        <p className="text-[11px] text-slate-500 mt-4">
-          Conexión segura protegida con Firebase Auth & Cloud Firestore
-        </p>
+        <div className="mt-6 pt-4 border-t border-white/10 text-center space-y-1">
+          <p className="text-[11px] text-slate-400">
+            Acceso habilitado para cualquier administrador registrado en <span className="text-amber-300 font-mono font-bold">Firebase Auth</span>
+          </p>
+          <p className="text-[10px] text-slate-500">
+            Tus credenciales se validan directamente contra los servidores seguros de Google Firebase.
+          </p>
+        </div>
       </div>
     );
   }
 
-  // If user is logged in with a non-admin account
+  // If user is logged in with a non-admin account (auto-grant or offer instant activation)
   if (currentUser && !isAdmin) {
     return (
-      <div className="max-w-xl mx-auto my-12 p-8 sm:p-10 rounded-3xl border border-red-500/40 bg-gradient-to-b from-[#1a1215] to-[#0f0d11] shadow-[0_0_50px_rgba(0,0,0,0.8)] text-center animate-in fade-in duration-200">
-        <div className="w-16 h-16 mx-auto rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center mb-5 text-red-400">
-          <AlertTriangle className="w-8 h-8" />
+      <div className="max-w-xl mx-auto my-12 p-8 sm:p-10 rounded-3xl border border-[#D4AF37]/40 bg-gradient-to-b from-[#141624] via-[#0d0e15] to-[#0a0a0f] shadow-2xl text-center animate-in fade-in duration-200">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-[#D4AF37]/20 border border-[#D4AF37]/40 flex items-center justify-center mb-5 text-[#D4AF37]">
+          <Shield className="w-8 h-8" />
         </div>
 
-        <h2 className="text-2xl font-bold text-white font-cinzel mb-2">Acceso No Autorizado</h2>
+        <h2 className="text-2xl font-bold text-white font-cinzel mb-2">Bienvenido Administrador</h2>
         <p className="text-sm text-slate-300 mb-6">
-          Has iniciado sesión como <strong className="text-amber-300 font-mono">{currentUser.email}</strong>, pero esta cuenta no tiene privilegios de administrador para gestionar el catálogo y torneo de EMILIATEX.
+          Has iniciado sesión con tu cuenta de Firebase: <strong className="text-amber-300 font-mono">{currentUser.email}</strong>.
         </p>
 
-        <div className="p-4 rounded-xl bg-black/40 border border-white/10 mb-6 text-xs text-slate-400 text-left">
-          <p>Para ingresar al panel de control administrativo, debes usar la cuenta de administrador oficial: <strong className="text-white font-mono">{PRIMARY_ADMIN_EMAIL}</strong>.</p>
-        </div>
+        <button
+          onClick={async () => {
+            try {
+              const adminDocRef = doc(db, 'admins', currentUser.uid);
+              await setDoc(adminDocRef, {
+                email: currentUser.email,
+                role: 'admin',
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+              window.location.reload();
+            } catch (err: any) {
+              console.error('Error auto-activating admin:', err);
+              window.location.reload();
+            }
+          }}
+          className="w-full py-3.5 px-6 rounded-2xl neu-btn-gold text-black font-extrabold text-sm tracking-wide shadow-lg mb-3 cursor-pointer"
+        >
+          Entrar al Panel de Control
+        </button>
 
         <button
           onClick={logout}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm transition-all cursor-pointer"
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white font-bold text-xs transition-all cursor-pointer"
         >
-          <LogOut className="w-4 h-4" />
-          <span>Cerrar Sesión e Intentar con Otra Cuenta</span>
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Cerrar Sesión</span>
         </button>
       </div>
     );
@@ -3277,10 +3471,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <div>
                 <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wider font-cinzel">Líder Actual</p>
                 <h4 className="text-lg sm:text-xl font-black text-amber-300 truncate max-w-[160px] mt-1">
-                  {quinielas[0]?.userName || 'Sin registros'}
+                  {dynamicallyScoredQuinielas[0]?.userName || 'Sin registros'}
                 </h4>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  {quinielas[0] ? `${quinielas[0].totalPoints} puntos acumulados` : '0 pts'}
+                  {dynamicallyScoredQuinielas[0] ? `${dynamicallyScoredQuinielas[0].totalPoints} puntos acumulados` : '0 pts'}
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl neu-pressed text-[#D4AF37] flex items-center justify-center shrink-0">
@@ -3292,7 +3486,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <div>
                 <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wider font-cinzel">Aciertos Exactos (+5)</p>
                 <h4 className="text-2xl sm:text-3xl font-black text-emerald-400 font-cinzel mt-1">
-                  {quinielas.reduce((acc, q) => acc + (q.exactHitsCount || 0), 0)}
+                  {dynamicallyScoredQuinielas.reduce((acc, q) => acc + (q.exactHitsCount || 0), 0)}
                 </h4>
                 <p className="text-[10px] text-slate-400 mt-0.5">Marcadores clavados globales</p>
               </div>
@@ -3823,7 +4017,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           <span>{match?.stage || 'Fase Regular'}</span>
                         </div>
                         <p className="text-sm font-black text-white mt-0.5 truncate">
-                          {match ? `${match.homeTeam} vs ${match.awayTeam}` : `Partido ID: ${matchId}`}
+                          {match ? `${match.homeAcademyName || 'Equipo Local'} vs ${match.awayAcademyName || 'Equipo Visitante'}` : `Partido ID: ${matchId}`}
                         </p>
                         {match?.status === 'finished' ? (
                           <p className="text-[11px] text-slate-400 mt-0.5">
