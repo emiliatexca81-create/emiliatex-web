@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage } from '../types';
 import { NavPage } from '../components/Navbar';
-import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers } from 'lucide-react';
-import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada } from '../services/storage';
+import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw } from 'lucide-react';
+import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas } from '../services/storage';
 
 interface TournamentViewProps {
   matches: TournamentMatch[];
@@ -24,6 +24,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   
   // Standings state
   const [standingsCategory, setStandingsCategory] = useState<'all' | TournamentCategory>('all');
+  const [isUpdatingStandings, setIsUpdatingStandings] = useState<boolean>(false);
 
   // Match filters state
   const availableJornadas = useMemo(() => getAvailableJornadas(matches), [matches]);
@@ -97,20 +98,9 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     });
   }, [academies, academyCategoryFilter]);
 
-  // Helper to get academies for a specific category, sorted by points & goal difference
-  const getStandingsForCategory = (cat: TournamentCategory) => {
-    const matching = academies.filter(acad => {
-      const cats = (acad.categories && acad.categories.length > 0) ? acad.categories : [acad.category || 'Sub-15'];
-      return cats.includes(cat);
-    });
-
-    return [...matching].sort((a, b) => {
-      if (b.points !== a.points) return b.points - a.points;
-      const diffB = b.goalsFor - b.goalsAgainst;
-      const diffA = a.goalsFor - a.goalsAgainst;
-      if (diffB !== diffA) return diffB - diffA;
-      return b.goalsFor - a.goalsFor;
-    });
+  // Helper to get academies for a specific category or general, computed dynamically from finished matches
+  const getStandingsForCategory = (cat: TournamentCategory | 'all') => {
+    return computeAcademyStandings(academies, matches, cat);
   };
 
   // Stage badge color helper
@@ -123,38 +113,60 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
   };
 
-  // Render a standings table for a specific category
-  const renderCategoryStandingsTable = (category: TournamentCategory) => {
+  // Render a standings table for a specific category or general
+  const renderCategoryStandingsTable = (category: TournamentCategory | 'all') => {
     const list = getStandingsForCategory(category);
+    const isGeneral = category === 'all';
 
     return (
       <div key={category} className="rounded-3xl neu-card overflow-hidden shadow-2xl space-y-0">
         {/* Table Header with Category Banner */}
         <div className="px-5 sm:px-6 py-4 border-b border-white/10 bg-gradient-to-r from-[#171926] via-[#12141f] to-[#171926] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="px-3 py-1 rounded-xl neu-btn-gold text-black font-black text-xs tracking-wider uppercase">
-              {category}
+            <span className={`px-3 py-1 rounded-xl text-black font-black text-xs tracking-wider uppercase ${
+              isGeneral ? 'bg-gradient-to-r from-amber-400 to-yellow-300 shadow-md' : 'neu-btn-gold'
+            }`}>
+              {isGeneral ? 'Tabla General' : category}
             </span>
             <div>
               <h3 className="text-sm sm:text-base font-black font-cinzel text-white flex items-center gap-2">
-                <span>Tabla Oficial de Posiciones</span>
+                <span>{isGeneral ? 'Tabla General de Posiciones (Torneo Completo)' : `Tabla Oficial de Posiciones - ${category}`}</span>
               </h3>
               <p className="text-[11px] text-slate-400">
-                {list.length} {list.length === 1 ? 'club registrado' : 'clubes en competencia'} en Categoría {category}
+                {list.length} {list.length === 1 ? 'club registrado' : 'clubes en competencia'} {isGeneral ? 'en la tabla acumulada' : `en Categoría ${category}`} • Puntos calculados en tiempo real
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] font-mono text-amber-300 hud-badge px-3 py-1 rounded-full uppercase tracking-wider">
               Sistema Puntos (PG×3 + PE)
             </span>
+            <button
+              type="button"
+              disabled={isUpdatingStandings}
+              onClick={async () => {
+                setIsUpdatingStandings(true);
+                try {
+                  await recalculateAllStandingsAndQuinielas(matches, academies);
+                } catch (err) {
+                  console.warn('Error al actualizar tabla:', err);
+                } finally {
+                  setIsUpdatingStandings(false);
+                }
+              }}
+              className="px-3 py-1 rounded-xl neu-btn-dark text-amber-300 hover:text-white text-[11px] font-bold flex items-center gap-1.5 border border-amber-400/30 active:scale-95 cursor-pointer disabled:opacity-50"
+              title="Recalcular marcadores y sincronizar tabla de posiciones"
+            >
+              <RefreshCw className={`w-3 h-3 ${isUpdatingStandings ? 'animate-spin text-amber-400' : 'text-amber-400'}`} />
+              <span>{isUpdatingStandings ? 'Actualizando...' : 'Actualizar Tabla'}</span>
+            </button>
           </div>
         </div>
 
         {list.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs space-y-2">
             <Shield className="w-8 h-8 text-slate-600 mx-auto" />
-            <p className="font-semibold text-white">No hay academias registradas aún en {category}</p>
+            <p className="font-semibold text-white">No hay academias registradas aún {isGeneral ? 'en el torneo' : `en ${category}`}</p>
             <p className="text-slate-500">Inscribe o asigna esta categoría a las academias desde el Panel de Control Administrativo.</p>
           </div>
         ) : (
@@ -176,7 +188,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
               </thead>
               <tbody className="divide-y divide-white/5">
                 {list.map((acad, idx) => {
-                  const dg = acad.goalsFor - acad.goalsAgainst;
+                  const dg = acad.goalDiff !== undefined ? acad.goalDiff : (acad.goalsFor - acad.goalsAgainst);
                   const isTopTwo = idx < 2;
                   return (
                     <tr
@@ -204,13 +216,13 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                           <span className="block text-[10px] text-slate-400 font-normal">{acad.city}</span>
                         </div>
                       </td>
-                      <td className="py-3.5 px-3 text-center text-slate-300 font-mono">{acad.played}</td>
+                      <td className="py-3.5 px-3 text-center text-slate-300 font-mono font-bold">{acad.played}</td>
                       <td className="py-3.5 px-3 text-center text-emerald-400 font-mono font-bold">{acad.won}</td>
                       <td className="py-3.5 px-3 text-center text-slate-300 font-mono">{acad.drawn}</td>
                       <td className="py-3.5 px-3 text-center text-red-400 font-mono">{acad.lost}</td>
                       <td className="py-3.5 px-3 text-center text-slate-300 font-mono">{acad.goalsFor}</td>
                       <td className="py-3.5 px-3 text-center text-slate-300 font-mono">{acad.goalsAgainst}</td>
-                      <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-200">
+                      <td className={`py-3.5 px-3 text-center font-mono font-bold ${dg > 0 ? 'text-emerald-400' : dg < 0 ? 'text-red-400' : 'text-slate-200'}`}>
                         {dg > 0 ? `+${dg}` : dg}
                       </td>
                       <td className="py-3.5 px-4 text-center font-black font-cinzel text-amber-300 text-base">
@@ -227,7 +239,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         <div className="p-3.5 bg-black/40 border-t border-white/5 flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-[#D4AF37]" />
-            1° y 2° Lugar clasifican a rondas finales de {category}
+            1° y 2° Lugar clasifican a rondas finales {isGeneral ? 'del Torneo' : `de ${category}`}
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
@@ -467,11 +479,37 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
       {/* TAB 1: STANDINGS TABLES DIVIDED BY CATEGORY */}
       {activeTab === 'standings' && (
         <div className="space-y-6">
+          {/* Header Banner - Cómputo de Puntos */}
+          <div className="p-4 sm:p-5 rounded-3xl neu-card-gold flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-[#D4AF37]/40 shadow-xl">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0 shadow-md">
+                <Trophy className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black font-cinzel text-white flex items-center gap-2">
+                  <span>Tabla de Posiciones Oficial</span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold">
+                    En Vivo
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-300">
+                  {matches.filter(m => m.status === 'finished').length} partidos finalizados registrados • Puntos y goles computados automáticamente
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="px-3.5 py-1.5 rounded-xl neu-pressed text-amber-300 text-xs font-mono font-bold">
+                Victoria: 3 pts • Empate: 1 pt
+              </span>
+            </div>
+          </div>
+
           {/* Category Filter Pills */}
           <div className="p-3 sm:p-4 rounded-2xl neu-card flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-slate-300">
               <Filter className="w-4 h-4 text-[#D4AF37]" />
-              <span className="font-extrabold text-white uppercase text-[11px] tracking-wider">Filtrar Categoría:</span>
+              <span className="font-extrabold text-white uppercase text-[11px] tracking-wider">Ver Clasificación:</span>
             </div>
 
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth -mx-2 px-2 sm:mx-0 sm:px-0 sm:flex-wrap">
@@ -483,7 +521,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                     : 'neu-pressed text-slate-400 hover:text-white'
                 }`}
               >
-                Todas las Categorías
+                Tabla General Acumulada
               </button>
 
               {TOURNAMENT_CATEGORIES.map(cat => (
@@ -502,10 +540,25 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
             </div>
           </div>
 
-          {/* Render Standings: Either All Category Tables stacked, or single chosen Category */}
+          {/* Render Standings: Either All Category Tables stacked with General at top, or single chosen Category */}
           {standingsCategory === 'all' ? (
             <div className="space-y-8">
-              {TOURNAMENT_CATEGORIES.map(cat => renderCategoryStandingsTable(cat))}
+              {/* 1. TABLA GENERAL ACUMULADA DEL TORNEO */}
+              {renderCategoryStandingsTable('all')}
+
+              {/* 2. DESGLOSE POR CATEGORÍAS */}
+              <div className="pt-6 border-t border-white/10 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-amber-400" />
+                    <span>Desglose por Categorías Formativas</span>
+                  </h4>
+                  <span className="text-xs text-slate-400 font-mono">Sub-11 a Libre</span>
+                </div>
+                <div className="space-y-8">
+                  {TOURNAMENT_CATEGORIES.map(cat => renderCategoryStandingsTable(cat))}
+                </div>
+              </div>
             </div>
           ) : (
             <div>

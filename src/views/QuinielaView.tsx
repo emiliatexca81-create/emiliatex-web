@@ -39,6 +39,7 @@ import {
   formatWhatsAppLink, 
   getSettings,
   recalculateAllQuinielas,
+  purgeAllOrphanedPredictions,
   getMatchJornada,
   getAvailableJornadas,
   getActiveOrLatestJornada
@@ -106,6 +107,35 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
     return () => unsubscribe();
   }, []);
 
+  // When matches change or load, purge any orphaned predictions from user state and storage
+  useEffect(() => {
+    if (matches.length > 0) {
+      // 1. Sanitize local draft state
+      setPredictions(prev => {
+        const validMatchIds = new Set(matches.map(m => m.id));
+        let hasOrphan = false;
+        const clean: Record<string, MatchPredictionScore> = {};
+        for (const [mId, score] of Object.entries(prev) as [string, MatchPredictionScore][]) {
+          if (validMatchIds.has(mId)) {
+            clean[mId] = score;
+          } else {
+            hasOrphan = true;
+          }
+        }
+        return hasOrphan ? clean : prev;
+      });
+
+      // 2. Automatically cleanse all quinielas in Firestore & localStorage from deleted matches
+      purgeAllOrphanedPredictions(matches).then(cleaned => {
+        if (cleaned && cleaned.length > 0) {
+          setRawQuinielas(cleaned);
+        }
+      }).catch(err => {
+        console.warn('Auto orphan purge notice:', err);
+      });
+    }
+  }, [matches]);
+
   // REAL-TIME DYNAMIC LEADERBOARD:
   // Dynamically computes points, exact hits (+5) and outcome hits (+2)
   // for EVERY participant against all current tournament matches!
@@ -130,14 +160,16 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
     return list;
   }, [rawQuinielas, matches]);
 
-  // Keep Firestore persisted points in sync in the background if matches were updated
+  // Keep Firestore persisted points in sync in the background if matches were updated or deleted
   useEffect(() => {
     if (matches.length > 0 && rawQuinielas.length > 0) {
-      const hasStale = rawQuinielas.some(q => {
+      const validMatchIds = new Set(matches.map(m => m.id));
+      const hasStaleOrOrphan = rawQuinielas.some(q => {
         const stats = computeTotalQuinielaStats(q.predictions || {}, matches);
-        return stats.totalPoints !== q.totalPoints || stats.exactHitsCount !== q.exactHitsCount;
+        const hasOrphan = q.predictions && Object.keys(q.predictions).some(mId => !validMatchIds.has(mId));
+        return hasOrphan || stats.totalPoints !== q.totalPoints || stats.exactHitsCount !== q.exactHitsCount;
       });
-      if (hasStale) {
+      if (hasStaleOrOrphan) {
         recalculateAllQuinielas(matches, rawQuinielas).then(updated => {
           setRawQuinielas(updated);
         }).catch(() => {});
@@ -234,9 +266,17 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
       return;
     }
 
-    const predictedCount = Object.keys(predictions).length;
+    const validMatchIds = new Set(matches.map(m => m.id));
+    const cleanPredictions: Record<string, MatchPredictionScore> = {};
+    for (const [mId, score] of Object.entries(predictions) as [string, MatchPredictionScore][]) {
+      if (validMatchIds.has(mId)) {
+        cleanPredictions[mId] = score;
+      }
+    }
+
+    const predictedCount = Object.keys(cleanPredictions).length;
     if (predictedCount === 0) {
-      setValidationError('Ingresa al menos 1 pronóstico de partido para registrar tu Quiniela.');
+      setValidationError('Ingresa al menos 1 pronóstico de partido programado para registrar tu Quiniela.');
       return;
     }
 
@@ -244,7 +284,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
 
     try {
       // Calculate final points & stats
-      const stats = computeTotalQuinielaStats(predictions, matches);
+      const stats = computeTotalQuinielaStats(cleanPredictions, matches);
 
       const quinielaId = userPhone.replace(/[^0-9]/g, '') || `quiniela-${Date.now()}`;
       const entry: QuinielaEntry = {
@@ -254,7 +294,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
         totalPoints: stats.totalPoints,
         exactHitsCount: stats.exactHitsCount,
         outcomeHitsCount: stats.outcomeHitsCount,
-        predictions,
+        predictions: cleanPredictions,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -310,7 +350,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
   };
 
   const totalMatchesAvailable = matches.length;
-  const totalPredictedCount = Object.keys(predictions).length;
+  const totalPredictedCount = matches.filter(m => predictions[m.id] !== undefined).length;
 
   return (
     <div className="space-y-8 pb-16">
@@ -1163,7 +1203,9 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
                 <tbody className="divide-y divide-white/5">
                   {leaderboard.map((entry, idx) => {
                     const isCurrentUser = userName && entry.userName.toLowerCase() === userName.toLowerCase();
-                    const predCount = entry.predictions ? Object.keys(entry.predictions).length : 0;
+                    const predCount = entry.predictions 
+                      ? Object.keys(entry.predictions).filter(mId => matches.some(m => m.id === mId)).length 
+                      : 0;
 
                     return (
                       <tr
@@ -1233,7 +1275,9 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
             <div className="block md:hidden divide-y divide-white/10">
               {leaderboard.map((entry, idx) => {
                 const isCurrentUser = userName && entry.userName.toLowerCase() === userName.toLowerCase();
-                const predCount = entry.predictions ? Object.keys(entry.predictions).length : 0;
+                const predCount = entry.predictions 
+                  ? Object.keys(entry.predictions).filter(mId => matches.some(m => m.id === mId)).length 
+                  : 0;
 
                 return (
                   <div
@@ -1362,108 +1406,117 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
 
             {/* Matches Predictions List */}
             <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
-              <div className="flex items-center justify-between text-xs text-slate-300 uppercase tracking-wider font-bold">
-                <span>Desglose Partido por Partido ({Object.keys(inspectingParticipant.predictions || {}).length} pronósticos):</span>
-                <span className="text-[10px] text-amber-400 font-mono lowercase">(auditado)</span>
-              </div>
+              {(() => {
+                const validPredEntries = (Object.entries(inspectingParticipant.predictions || {}) as [string, MatchPredictionScore][])
+                  .filter(([matchId]) => matches.some(m => m.id === matchId));
 
-              {Object.keys(inspectingParticipant.predictions || {}).length === 0 ? (
-                <div className="p-8 text-center neu-pressed rounded-2xl text-slate-400 text-xs">
-                  Este participante no registró pronósticos para esta jornada.
-                </div>
-              ) : (
-                (Object.entries(inspectingParticipant.predictions || {}) as [string, MatchPredictionScore][]).map(([matchId, pred]) => {
-                  const match = matches.find(m => m.id === matchId);
-                  const evalResult = match ? evaluateMatchPrediction(pred, match) : null;
-
-                  return (
-                    <div key={matchId} className="p-4 rounded-2xl neu-card border border-white/5 space-y-3 hover:border-amber-400/40 transition-colors">
-                      {/* Top Badges: Category & Jornada */}
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 border-b border-white/5 pb-2">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="px-2 py-0.5 rounded-md neu-btn-gold text-black font-black uppercase font-mono">
-                            {match ? getMatchJornada(match) : 'Jornada'}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-md neu-pressed text-amber-300 font-bold">
-                            {match?.category || 'Torneo'}
-                          </span>
-                          <span>•</span>
-                          <span>{match?.stage || match?.phase || 'Fase Regular'}</span>
-                        </div>
-
-                        {match?.status === 'finished' ? (
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold">
-                            Finalizado
-                          </span>
-                        ) : match?.status === 'live' ? (
-                          <span className="px-2 py-0.5 rounded-md bg-red-500 text-white font-bold animate-pulse">
-                            🔴 En Vivo
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md neu-pressed text-amber-300 font-bold">
-                            {match?.date || 'Programado'}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Teams & Score Row */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <p className="text-sm font-black text-white truncate">
-                            {match ? `${match.homeAcademyName || 'Equipo Local'} vs ${match.awayAcademyName || 'Equipo Visitante'}` : `Partido ID: ${matchId}`}
-                          </p>
-
-                          {match && (match.status === 'finished' || match.status === 'live') && match.homeScore !== undefined ? (
-                            <p className="text-xs text-slate-300 flex items-center gap-1.5 font-mono">
-                              <span>Marcador Oficial:</span>
-                              <strong className="text-white bg-black/60 px-2 py-0.5 rounded-md border border-white/10 font-cinzel">
-                                {match.homeScore} - {match.awayScore}
-                              </strong>
-                              {match.status === 'live' && <span className="text-red-400 font-bold">(En Vivo)</span>}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-slate-400 italic">
-                              Marcador oficial: Pendiente por disputarse
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Prediction vs Outcome Badge */}
-                        <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
-                          <div className="text-right">
-                            <span className="block text-[10px] text-amber-300 font-black uppercase tracking-wider">
-                              Pronosticó:
-                            </span>
-                            <span className="inline-block text-base sm:text-lg font-black font-cinzel text-amber-300 bg-black/60 px-3 py-1 rounded-xl border border-amber-400/40 shadow-sm">
-                              {pred.homeScore} - {pred.awayScore}
-                            </span>
-                          </div>
-
-                          <div className="min-w-[110px] text-center">
-                            {evalResult && evalResult.points > 0 ? (
-                              <span className={`inline-block px-3 py-1.5 rounded-xl text-xs font-black shadow-sm ${
-                                evalResult.exactHit
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                              }`}>
-                                +{evalResult.points} PTS {evalResult.exactHit ? '🎯 Exacto' : '⚽ Simple'}
-                              </span>
-                            ) : match?.status === 'finished' ? (
-                              <span className="inline-block px-2.5 py-1 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-bold">
-                                0 pts (Fallo)
-                              </span>
-                            ) : (
-                              <span className="inline-block px-2.5 py-1 rounded-xl bg-white/5 text-slate-400 text-xs font-semibold">
-                                Pendiente ⏳
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                return (
+                  <>
+                    <div className="flex items-center justify-between text-xs text-slate-300 uppercase tracking-wider font-bold">
+                      <span>Desglose Partido por Partido ({validPredEntries.length} pronósticos activos):</span>
+                      <span className="text-[10px] text-amber-400 font-mono lowercase">(auditado)</span>
                     </div>
-                  );
-                })
-              )}
+
+                    {validPredEntries.length === 0 ? (
+                      <div className="p-8 text-center neu-pressed rounded-2xl text-slate-400 text-xs">
+                        Este participante no tiene pronósticos registrados para los partidos programados actualmente.
+                      </div>
+                    ) : (
+                      validPredEntries.map(([matchId, pred]) => {
+                        const match = matches.find(m => m.id === matchId)!;
+                        const evalResult = evaluateMatchPrediction(pred, match);
+
+                        return (
+                          <div key={matchId} className="p-4 rounded-2xl neu-card border border-white/5 space-y-3 hover:border-amber-400/40 transition-colors">
+                            {/* Top Badges: Category & Jornada */}
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 border-b border-white/5 pb-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-2 py-0.5 rounded-md neu-btn-gold text-black font-black uppercase font-mono">
+                                  {getMatchJornada(match)}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md neu-pressed text-amber-300 font-bold">
+                                  {match.category || 'Torneo'}
+                                </span>
+                                <span>•</span>
+                                <span>{match.stage || match.phase || 'Fase Regular'}</span>
+                              </div>
+
+                              {match.status === 'finished' ? (
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold">
+                                  Finalizado
+                                </span>
+                              ) : match.status === 'live' ? (
+                                <span className="px-2 py-0.5 rounded-md bg-red-500 text-white font-bold animate-pulse">
+                                  🔴 En Vivo
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-md neu-pressed text-amber-300 font-bold">
+                                  {match.date || 'Programado'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Teams & Score Row */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <p className="text-sm font-black text-white truncate">
+                                  {match.homeAcademyName || 'Equipo Local'} vs {match.awayAcademyName || 'Equipo Visitante'}
+                                </p>
+
+                                {(match.status === 'finished' || match.status === 'live') && match.homeScore !== undefined ? (
+                                  <p className="text-xs text-slate-300 flex items-center gap-1.5 font-mono">
+                                    <span>Marcador Oficial:</span>
+                                    <strong className="text-white bg-black/60 px-2 py-0.5 rounded-md border border-white/10 font-cinzel">
+                                      {match.homeScore} - {match.awayScore}
+                                    </strong>
+                                    {match.status === 'live' && <span className="text-red-400 font-bold">(En Vivo)</span>}
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-slate-400 italic">
+                                    Marcador oficial: Pendiente por disputarse
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Prediction vs Outcome Badge */}
+                              <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+                                <div className="text-right">
+                                  <span className="block text-[10px] text-amber-300 font-black uppercase tracking-wider">
+                                    Pronosticó:
+                                  </span>
+                                  <span className="inline-block text-base sm:text-lg font-black font-cinzel text-amber-300 bg-black/60 px-3 py-1 rounded-xl border border-amber-400/40 shadow-sm">
+                                    {pred.homeScore} - {pred.awayScore}
+                                  </span>
+                                </div>
+
+                                <div className="min-w-[110px] text-center">
+                                  {evalResult && evalResult.points > 0 ? (
+                                    <span className={`inline-block px-3 py-1.5 rounded-xl text-xs font-black shadow-sm ${
+                                      evalResult.exactHit
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                    }`}>
+                                      +{evalResult.points} PTS {evalResult.exactHit ? '🎯 Exacto' : '⚽ Simple'}
+                                    </span>
+                                  ) : match.status === 'finished' ? (
+                                    <span className="inline-block px-2.5 py-1 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-bold">
+                                      0 pts (Fallo)
+                                    </span>
+                                  ) : (
+                                    <span className="inline-block px-2.5 py-1 rounded-xl bg-white/5 text-slate-400 text-xs font-semibold">
+                                      Pendiente ⏳
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Modal Bottom Actions */}

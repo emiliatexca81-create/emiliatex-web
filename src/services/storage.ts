@@ -9,7 +9,7 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore } from '../types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore, TournamentCategory } from '../types';
 import { 
   initialProducts, 
   initialMatches, 
@@ -245,10 +245,14 @@ export async function saveMatch(match: TournamentMatch): Promise<TournamentMatch
     handleFirestoreError(err, OperationType.WRITE, `matches/${match.id}`);
   }
 
-  // Automatically recalculate and sync all quiniela participants when a match is saved
+  // Automatically recalculate and sync all quiniela participants and tournament standings when a match is saved
   try {
     recalculateAllQuinielas(updated).catch(err => {
       console.warn('Auto recalculate quinielas error:', err);
+    });
+    const currentAcademies = getAcademies();
+    syncAcademyStandingsToStorage(currentAcademies, updated).catch(err => {
+      console.warn('Auto sync academy standings error:', err);
     });
   } catch (err) {
     // non-blocking
@@ -274,6 +278,15 @@ export async function deleteMatch(id: string): Promise<TournamentMatch[]> {
     handleFirestoreError(err, OperationType.DELETE, `matches/${id}`);
   }
 
+  // Purge all predictions referencing this deleted match across all participants and drafts
+  try {
+    purgeMatchPredictionsFromAll(id, updated).catch(err => {
+      console.warn('Error auto-purging predictions for deleted match:', err);
+    });
+  } catch (err) {
+    // non-blocking
+  }
+
   return updated;
 }
 
@@ -291,6 +304,15 @@ export async function deleteAllMatches(): Promise<TournamentMatch[]> {
     localStorage.setItem(KEYS.INITIALIZED_MATCHES, 'true');
   }
   setItem(KEYS.MATCHES, []);
+
+  try {
+    purgeAllOrphanedPredictions([]).catch(err => {
+      console.warn('Error purging all predictions:', err);
+    });
+  } catch (err) {
+    // non-blocking
+  }
+
   return [];
 }
 
@@ -376,6 +398,302 @@ export async function deleteAcademy(id: string): Promise<Academy[]> {
   }
 
   return updated;
+}
+
+export interface ComputedStandingsAcademy extends Academy {
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDiff: number;
+  points: number;
+}
+
+/**
+ * Computes official standings (PJ, PG, PE, PP, GF, GC, DG, PTS) dynamically
+ * from finished and live tournament matches.
+ */
+export function normalizeTeamName(name?: string): string {
+  if (!name) return '';
+  return name
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Computes official standings (PJ, PG, PE, PP, GF, GC, DG, PTS) dynamically
+ * from finished and live tournament matches.
+ */
+export function computeAcademyStandings(
+  academies: Academy[],
+  matches: TournamentMatch[],
+  category?: string
+): ComputedStandingsAcademy[] {
+  // 1. Build a unified registry of clubs: registered academies + any teams present in matches
+  const academyMap = new Map<string, Academy>();
+
+  // Add registered academies
+  for (const acad of academies) {
+    if (acad && acad.name) {
+      academyMap.set(acad.id, acad);
+    }
+  }
+
+  // Discover and add any teams referenced in matches that might not be in the initial academy list
+  for (const m of matches) {
+    if (m.homeAcademyName) {
+      const homeNorm = normalizeTeamName(m.homeAcademyName);
+      const exists = Array.from(academyMap.values()).some(
+        a => (m.homeAcademyId && a.id === m.homeAcademyId) || normalizeTeamName(a.name) === homeNorm
+      );
+      if (!exists) {
+        const id = m.homeAcademyId || `acad-${homeNorm.replace(/[^a-z0-9]/g, '-') || Date.now()}`;
+        academyMap.set(id, {
+          id,
+          name: m.homeAcademyName,
+          acronym: m.homeAcademyName.slice(0, 3).toUpperCase(),
+          logo: m.homeLogo || 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=150&auto=format&fit=crop&q=80',
+          city: 'Torneo Élite',
+          coach: '',
+          category: (m.category as TournamentCategory) || 'Sub-15',
+          categories: [(m.category as TournamentCategory) || 'Sub-15'],
+          played: 0,
+          won: 0,
+          drawn: 0,
+          lost: 0,
+          goalsFor: 0,
+          goalsAgainst: 0,
+          points: 0
+        });
+      }
+    }
+
+    if (m.awayAcademyName) {
+      const awayNorm = normalizeTeamName(m.awayAcademyName);
+      const exists = Array.from(academyMap.values()).some(
+        a => (m.awayAcademyId && a.id === m.awayAcademyId) || normalizeTeamName(a.name) === awayNorm
+      );
+      if (!exists) {
+        const id = m.awayAcademyId || `acad-${awayNorm.replace(/[^a-z0-9]/g, '-') || Date.now()}`;
+        academyMap.set(id, {
+          id,
+          name: m.awayAcademyName,
+          acronym: m.awayAcademyName.slice(0, 3).toUpperCase(),
+          logo: m.awayLogo || 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=150&auto=format&fit=crop&q=80',
+          city: 'Torneo Élite',
+          coach: '',
+          category: (m.category as TournamentCategory) || 'Sub-15',
+          categories: [(m.category as TournamentCategory) || 'Sub-15'],
+          played: 0,
+          won: 0,
+          drawn: 0,
+          lost: 0,
+          goalsFor: 0,
+          goalsAgainst: 0,
+          points: 0
+        });
+      }
+    }
+  }
+
+  const allAcademies = Array.from(academyMap.values());
+
+  // 2. Filter academies by category if requested
+  const matchingAcademies = allAcademies.filter(acad => {
+    if (!category || category === 'all') return true;
+    const cats = (acad.categories && acad.categories.length > 0) ? acad.categories : [acad.category || 'Sub-15'];
+    return cats.includes(category);
+  });
+
+  // 3. Identify all valid finished / live matches
+  const validMatches = matches.filter(m => {
+    if (category && category !== 'all' && m.category && m.category !== category) {
+      return false;
+    }
+    const status = String(m.status || '').toLowerCase().trim();
+    const isFinished = status === 'finished' || status === 'finalizado' || status === 'terminado' || status === 'concluido' || status === 'completado';
+    const isLive = status === 'live' || status === 'en vivo' || status === 'en_vivo';
+    const hasScores = m.homeScore !== undefined && m.homeScore !== null && 
+                      m.awayScore !== undefined && m.awayScore !== null && 
+                      !isNaN(Number(m.homeScore)) && !isNaN(Number(m.awayScore));
+
+    return (isFinished || isLive) && hasScores;
+  });
+
+  // 4. Compute stats for each matching academy
+  const computed: ComputedStandingsAcademy[] = matchingAcademies.map(acad => {
+    const acadNormName = normalizeTeamName(acad.name);
+    let played = 0;
+    let won = 0;
+    let drawn = 0;
+    let lost = 0;
+    let goalsFor = 0;
+    let goalsAgainst = 0;
+
+    for (const m of validMatches) {
+      const homeNorm = normalizeTeamName(m.homeAcademyName);
+      const awayNorm = normalizeTeamName(m.awayAcademyName);
+
+      const isHome = (m.homeAcademyId && acad.id && m.homeAcademyId === acad.id) || 
+                     (homeNorm && acadNormName && (homeNorm === acadNormName || homeNorm.includes(acadNormName) || acadNormName.includes(homeNorm)));
+      const isAway = (m.awayAcademyId && acad.id && m.awayAcademyId === acad.id) || 
+                     (awayNorm && acadNormName && (awayNorm === acadNormName || awayNorm.includes(acadNormName) || acadNormName.includes(awayNorm)));
+
+      if (isHome) {
+        played++;
+        const h = Number(m.homeScore || 0);
+        const a = Number(m.awayScore || 0);
+        goalsFor += h;
+        goalsAgainst += a;
+        if (h > a) won++;
+        else if (h === a) drawn++;
+        else lost++;
+      } else if (isAway) {
+        played++;
+        const h = Number(m.homeScore || 0);
+        const a = Number(m.awayScore || 0);
+        goalsFor += a;
+        goalsAgainst += h;
+        if (a > h) won++;
+        else if (a === h) drawn++;
+        else lost++;
+      }
+    }
+
+    // If matches have been played by this academy, use the dynamic stats from matches!
+    const hasPlayedMatches = played > 0;
+    const finalPlayed = hasPlayedMatches ? played : (acad.played || 0);
+    const finalWon = hasPlayedMatches ? won : (acad.won || 0);
+    const finalDrawn = hasPlayedMatches ? drawn : (acad.drawn || 0);
+    const finalLost = hasPlayedMatches ? lost : (acad.lost || 0);
+    const finalGoalsFor = hasPlayedMatches ? goalsFor : (acad.goalsFor || 0);
+    const finalGoalsAgainst = hasPlayedMatches ? goalsAgainst : (acad.goalsAgainst || 0);
+    const finalPoints = hasPlayedMatches ? (won * 3 + drawn) : (acad.points || 0);
+    const finalGoalDiff = finalGoalsFor - finalGoalsAgainst;
+
+    return {
+      ...acad,
+      played: finalPlayed,
+      won: finalWon,
+      drawn: finalDrawn,
+      lost: finalLost,
+      goalsFor: finalGoalsFor,
+      goalsAgainst: finalGoalsAgainst,
+      goalDiff: finalGoalDiff,
+      points: finalPoints
+    };
+  });
+
+  // 5. Sort: Points DESC, GoalDiff DESC, GoalsFor DESC, Won DESC, Name ASC
+  computed.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.goalDiff !== a.goalDiff) return b.goalDiff - a.goalDiff;
+    if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+    if (b.won !== a.won) return b.won - a.won;
+    return a.name.localeCompare(b.name);
+  });
+
+  return computed;
+}
+
+/**
+ * Persist computed standings across all academies to localStorage & Firestore
+ */
+export async function syncAcademyStandingsToStorage(
+  academies: Academy[],
+  matches: TournamentMatch[]
+): Promise<Academy[]> {
+  const standings = computeAcademyStandings(academies, matches, 'all');
+  const updated: Academy[] = standings.map(s => ({
+    id: s.id,
+    name: s.name,
+    acronym: s.acronym,
+    logo: s.logo,
+    city: s.city,
+    coach: s.coach,
+    category: s.category,
+    categories: s.categories,
+    played: s.played,
+    won: s.won,
+    drawn: s.drawn,
+    lost: s.lost,
+    goalsFor: s.goalsFor,
+    goalsAgainst: s.goalsAgainst,
+    points: s.points,
+    foundationYear: s.foundationYear,
+    primaryColor: s.primaryColor
+  }));
+
+  setItem(KEYS.ACADEMIES, updated);
+
+  for (const acad of updated) {
+    try {
+      await setDoc(doc(db, 'academies', acad.id), cleanFirestoreData(acad));
+    } catch (err) {
+      console.warn(`Error updating academy ${acad.id} standings in Firestore:`, err);
+    }
+  }
+
+  return updated;
+}
+
+/**
+ * Mark all matches of a specified jornada as finished and sync both tournament & quiniela points
+ */
+export async function finishJornadaMatches(
+  jornada: string,
+  matches: TournamentMatch[],
+  academies: Academy[]
+): Promise<{ updatedMatches: TournamentMatch[]; updatedAcademies: Academy[]; updatedQuinielas: QuinielaEntry[] }> {
+  const updatedMatches = matches.map(m => {
+    if (getMatchJornada(m) === jornada) {
+      return {
+        ...m,
+        status: 'finished' as const,
+        homeScore: Number(m.homeScore ?? 0),
+        awayScore: Number(m.awayScore ?? 0)
+      };
+    }
+    return m;
+  });
+
+  setItem(KEYS.MATCHES, updatedMatches);
+
+  // Write updated matches to Firestore
+  for (const m of updatedMatches) {
+    if (getMatchJornada(m) === jornada) {
+      try {
+        await setDoc(doc(db, 'matches', m.id), cleanFirestoreData(m));
+      } catch (err) {
+        console.warn(`Error updating match ${m.id} in Firestore:`, err);
+      }
+    }
+  }
+
+  // Sync academy standings
+  const updatedAcademies = await syncAcademyStandingsToStorage(academies, updatedMatches);
+
+  // Recalculate Quinielas
+  const updatedQuinielas = await recalculateAllQuinielas(updatedMatches);
+
+  return { updatedMatches, updatedAcademies, updatedQuinielas };
+}
+
+/**
+ * Recalculate and synchronize both tournament academy standings and quinielas in one unified operation
+ */
+export async function recalculateAllStandingsAndQuinielas(
+  matches: TournamentMatch[],
+  academies: Academy[]
+): Promise<{ updatedAcademies: Academy[]; updatedQuinielas: QuinielaEntry[] }> {
+  const updatedAcademies = await syncAcademyStandingsToStorage(academies, matches);
+  const updatedQuinielas = await recalculateAllQuinielas(matches);
+  return { updatedAcademies, updatedQuinielas };
 }
 
 // ---------------- ORDERS & QUOTATIONS ----------------
@@ -664,8 +982,10 @@ export function evaluateMatchPrediction(
   // A match is evaluated if it is finished or live with recorded scores
   const homeScoreValid = actualMatch.homeScore !== undefined && actualMatch.homeScore !== null && !isNaN(Number(actualMatch.homeScore));
   const awayScoreValid = actualMatch.awayScore !== undefined && actualMatch.awayScore !== null && !isNaN(Number(actualMatch.awayScore));
-  const isFinished = actualMatch.status === 'finished';
-  const isEvaluated = isFinished || (actualMatch.status === 'live' && homeScoreValid && awayScoreValid);
+  const statusClean = String(actualMatch.status || '').toLowerCase().trim();
+  const isFinished = statusClean === 'finished' || statusClean === 'finalizado' || statusClean === 'terminado' || statusClean === 'concluido' || statusClean === 'completado';
+  const isLive = statusClean === 'live' || statusClean === 'en vivo' || statusClean === 'en_vivo';
+  const isEvaluated = (isFinished || isLive) && homeScoreValid && awayScoreValid;
 
   if (!isEvaluated || !homeScoreValid || !awayScoreValid) {
     return { exactHit: false, outcomeHit: false, points: 0, description: 'Pendiente' };
@@ -720,15 +1040,63 @@ export function getQuinielas(): QuinielaEntry[] {
   const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_QUINIELAS) === 'true';
   const raw = getItem<QuinielaEntry[]>(KEYS.QUINIELAS, isInitialized ? [] : initialQuinielas);
   const deletedIds = getDeletedQuinielaIds();
-  if (deletedIds.length === 0) return raw;
-  return raw.filter(q => !deletedIds.includes(q.id));
+  const deletedMatchIds = new Set(getDeletedMatchIds());
+
+  const filtered = deletedIds.length === 0 ? raw : raw.filter(q => !deletedIds.includes(q.id));
+
+  // Purge any predictions whose matches were permanently marked deleted
+  if (deletedMatchIds.size > 0) {
+    return filtered.map(q => {
+      if (!q.predictions) return q;
+      let hasOrphan = false;
+      const cleanPreds: Record<string, MatchPredictionScore> = {};
+      for (const [mId, score] of Object.entries(q.predictions)) {
+        if (!deletedMatchIds.has(mId)) {
+          cleanPreds[mId] = score;
+        } else {
+          hasOrphan = true;
+        }
+      }
+      return hasOrphan ? { ...q, predictions: cleanPreds } : q;
+    });
+  }
+
+  return filtered;
 }
 
 export function getUserSavedQuiniela(): { userName: string; userPhone: string; predictions: Record<string, MatchPredictionScore> } | null {
-  return getItem(KEYS.USER_QUINIELA, null);
+  const data = getItem<{ userName: string; userPhone: string; predictions: Record<string, MatchPredictionScore> } | null>(KEYS.USER_QUINIELA, null);
+  if (!data || !data.predictions) return data;
+  const deletedMatchIds = new Set(getDeletedMatchIds());
+  if (deletedMatchIds.size > 0) {
+    let hasOrphan = false;
+    const cleanPreds: Record<string, MatchPredictionScore> = {};
+    for (const [mId, score] of Object.entries(data.predictions)) {
+      if (!deletedMatchIds.has(mId)) {
+        cleanPreds[mId] = score;
+      } else {
+        hasOrphan = true;
+      }
+    }
+    if (hasOrphan) {
+      data.predictions = cleanPreds;
+    }
+  }
+  return data;
 }
 
 export function saveUserLocalQuiniela(data: { userName: string; userPhone: string; predictions: Record<string, MatchPredictionScore> }): void {
+  // Strip deleted matches before saving local draft
+  const deletedMatchIds = new Set(getDeletedMatchIds());
+  if (data.predictions && deletedMatchIds.size > 0) {
+    const cleanPreds: Record<string, MatchPredictionScore> = {};
+    for (const [mId, score] of Object.entries(data.predictions)) {
+      if (!deletedMatchIds.has(mId)) {
+        cleanPreds[mId] = score;
+      }
+    }
+    data.predictions = cleanPreds;
+  }
   setItem(KEYS.USER_QUINIELA, data);
 }
 
@@ -742,6 +1110,27 @@ export async function saveQuiniela(entry: QuinielaEntry): Promise<QuinielaEntry[
   if (deletedIds.includes(entry.id)) {
     setItem(KEYS.DELETED_QUINIELA_IDS, deletedIds.filter(id => id !== entry.id));
   }
+
+  // Strip deleted matches and non-existent matches from predictions before persisting
+  const currentMatches = getMatches();
+  const validMatchIds = new Set(currentMatches.map(m => m.id));
+  const deletedMatchIds = new Set(getDeletedMatchIds());
+
+  if (entry.predictions) {
+    const clean: Record<string, MatchPredictionScore> = {};
+    for (const [mId, score] of Object.entries(entry.predictions)) {
+      if (validMatchIds.has(mId) && !deletedMatchIds.has(mId)) {
+        clean[mId] = score;
+      }
+    }
+    entry.predictions = clean;
+  }
+
+  // Recalculate stats based on clean predictions
+  const stats = computeTotalQuinielaStats(entry.predictions, currentMatches);
+  entry.totalPoints = stats.totalPoints;
+  entry.exactHitsCount = stats.exactHitsCount;
+  entry.outcomeHitsCount = stats.outcomeHitsCount;
 
   const current = getQuinielas();
   const existsIndex = current.findIndex(q => q.id === entry.id || (q.userPhone && q.userPhone === entry.userPhone));
@@ -828,6 +1217,10 @@ export async function deleteSampleQuinielas(): Promise<QuinielaEntry[]> {
   return updated;
 }
 
+/**
+ * Recalculates all participants' scores, simultaneously pruning any orphaned predictions
+ * for matches that were deleted from the tournament.
+ */
 export async function recalculateAllQuinielas(
   matches: TournamentMatch[],
   entriesList?: QuinielaEntry[]
@@ -849,10 +1242,43 @@ export async function recalculateAllQuinielas(
     console.warn('Could not fetch remote quinielas during recalculate:', err);
   }
 
+  const validMatchIds = new Set(matches.map(m => m.id));
+  const deletedMatchIds = new Set(getDeletedMatchIds());
+
+  // Also clean local user draft predictions if needed
+  const userSaved = getUserSavedQuiniela();
+  if (userSaved && userSaved.predictions) {
+    let hadOrphans = false;
+    const cleanPreds: Record<string, MatchPredictionScore> = {};
+    for (const [mId, score] of Object.entries(userSaved.predictions)) {
+      if (validMatchIds.has(mId) && !deletedMatchIds.has(mId)) {
+        cleanPreds[mId] = score;
+      } else {
+        hadOrphans = true;
+      }
+    }
+    if (hadOrphans) {
+      saveUserLocalQuiniela({ ...userSaved, predictions: cleanPreds });
+    }
+  }
+
   const updated = sourceEntries.map(entry => {
-    const stats = computeTotalQuinielaStats(entry.predictions, matches);
+    // Purge any predictions for matches that were deleted or no longer exist
+    let cleanPreds = entry.predictions || {};
+    if (entry.predictions) {
+      const sanitized: Record<string, MatchPredictionScore> = {};
+      for (const [mId, pred] of Object.entries(entry.predictions)) {
+        if (validMatchIds.has(mId) && !deletedMatchIds.has(mId)) {
+          sanitized[mId] = pred;
+        }
+      }
+      cleanPreds = sanitized;
+    }
+
+    const stats = computeTotalQuinielaStats(cleanPreds, matches);
     return {
       ...entry,
+      predictions: cleanPreds,
       totalPoints: stats.totalPoints,
       exactHitsCount: stats.exactHitsCount,
       outcomeHitsCount: stats.outcomeHitsCount,
@@ -880,16 +1306,69 @@ export async function recalculateAllQuinielas(
   return updated;
 }
 
+/**
+ * Purge predictions for a single deleted match from all participants across Firestore & localStorage
+ */
+export async function purgeMatchPredictionsFromAll(
+  deletedMatchId: string,
+  updatedMatches: TournamentMatch[]
+): Promise<QuinielaEntry[]> {
+  // Purge from local user draft if present
+  const userSaved = getUserSavedQuiniela();
+  if (userSaved && userSaved.predictions && userSaved.predictions[deletedMatchId]) {
+    const updatedUserPreds = { ...userSaved.predictions };
+    delete updatedUserPreds[deletedMatchId];
+    saveUserLocalQuiniela({
+      ...userSaved,
+      predictions: updatedUserPreds
+    });
+  }
+
+  // Recalculating with the updatedMatches automatically strips all predictions for deletedMatchId
+  return await recalculateAllQuinielas(updatedMatches);
+}
+
+/**
+ * Scan all quinielas and strip any prediction for matches that are not in currentMatches
+ */
+export async function purgeAllOrphanedPredictions(
+  currentMatches: TournamentMatch[]
+): Promise<QuinielaEntry[]> {
+  return await recalculateAllQuinielas(currentMatches);
+}
+
 export function subscribeQuinielas(callback: (quinielas: QuinielaEntry[]) => void): () => void {
   const path = 'quinielas';
   return onSnapshot(
     collection(db, path),
     (snapshot) => {
       const deletedIds = getDeletedQuinielaIds();
+      const currentMatches = getMatches();
+      const validMatchIds = new Set(currentMatches.map(m => m.id));
+      const deletedMatchIds = new Set(getDeletedMatchIds());
+
       if (!snapshot.empty) {
         const list = snapshot.docs
-          .map(d => ({ ...d.data(), id: d.id } as QuinielaEntry))
+          .map(d => {
+            const entry = { ...d.data(), id: d.id } as QuinielaEntry;
+            if (entry.predictions) {
+              const cleanPreds: Record<string, MatchPredictionScore> = {};
+              let hasOrphan = false;
+              for (const [mId, score] of Object.entries(entry.predictions)) {
+                if (validMatchIds.has(mId) && !deletedMatchIds.has(mId)) {
+                  cleanPreds[mId] = score;
+                } else {
+                  hasOrphan = true;
+                }
+              }
+              if (hasOrphan) {
+                entry.predictions = cleanPreds;
+              }
+            }
+            return entry;
+          })
           .filter(q => !deletedIds.includes(q.id));
+
         list.sort((a, b) => b.totalPoints - a.totalPoints || b.exactHitsCount - a.exactHitsCount);
         if (typeof window !== 'undefined') {
           localStorage.setItem(KEYS.INITIALIZED_QUINIELAS, 'true');

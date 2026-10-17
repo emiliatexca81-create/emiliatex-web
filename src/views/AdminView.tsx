@@ -90,7 +90,10 @@ import {
   computeTotalQuinielaStats,
   getMatchJornada,
   getAvailableJornadas,
-  getActiveOrLatestJornada
+  getActiveOrLatestJornada,
+  finishJornadaMatches,
+  syncAcademyStandingsToStorage,
+  recalculateAllStandingsAndQuinielas
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
 import { doc, setDoc } from 'firebase/firestore';
@@ -285,17 +288,54 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setTimeout(() => setToast(null), 3500);
   };
 
+  const [isFinishingJornada, setIsFinishingJornada] = useState(false);
+
   const handleRecalculatePoints = async () => {
     setIsRecalculatingQuinielas(true);
     try {
-      const updated = await recalculateAllQuinielas(matches);
-      setQuinielas(updated);
-      showToast(`Puntuación de ${updated.length} participantes recalculada con éxito según los partidos finalizados`, 'success');
+      const res = await recalculateAllStandingsAndQuinielas(matches, academies);
+      setQuinielas(res.updatedQuinielas);
+      onRefresh();
+      showToast(`¡Puntos recalculados y sumados con éxito en la Tabla General (${res.updatedAcademies.length} clubes) y en la Quiniela (${res.updatedQuinielas.length} participantes)!`, 'success');
     } catch (err: any) {
       console.error('Error al recalcular:', err);
       showToast('Error al recalcular puntuaciones: ' + (err?.message || 'Error inesperado'), 'error');
     } finally {
       setIsRecalculatingQuinielas(false);
+    }
+  };
+
+  const handleFinishJornada = async (targetJornada: string) => {
+    setIsFinishingJornada(true);
+    try {
+      const res = await finishJornadaMatches(targetJornada, matches, academies);
+      setQuinielas(res.updatedQuinielas);
+      onRefresh();
+      showToast(`¡${targetJornada} finalizada con éxito! Todos sus partidos quedaron marcados como finalizados y se sumaron los puntos en la Tabla General y en la Quiniela.`, 'success');
+    } catch (err: any) {
+      console.error('Error al finalizar jornada:', err);
+      showToast('Error al finalizar jornada: ' + (err?.message || 'Error inesperado'), 'error');
+    } finally {
+      setIsFinishingJornada(false);
+    }
+  };
+
+  const handleQuickFinishMatch = async (m: TournamentMatch) => {
+    try {
+      const updatedMatch: TournamentMatch = {
+        ...m,
+        status: 'finished',
+        homeScore: Number(m.homeScore ?? 0),
+        awayScore: Number(m.awayScore ?? 0)
+      };
+      const updatedMatches = await saveMatch(updatedMatch);
+      const res = await recalculateAllStandingsAndQuinielas(updatedMatches, academies);
+      setQuinielas(res.updatedQuinielas);
+      onRefresh();
+      showToast(`¡Partido "${m.homeAcademyName} vs ${m.awayAcademyName}" finalizado! Puntos sumados en Tabla General y Quiniela.`, 'success');
+    } catch (err: any) {
+      console.error('Error al finalizar partido:', err);
+      showToast('Error al finalizar partido: ' + (err?.message || 'Error'), 'error');
     }
   };
 
@@ -315,10 +355,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
         showToast(`Academia "${name}" eliminada correctamente de Firestore y del torneo`, 'success');
       } else if (type === 'match') {
         await deleteMatch(id);
-        showToast(`Partido eliminado correctamente de forma definitiva`, 'success');
+        showToast(`Partido eliminado y sus pronósticos han sido limpiados de la quiniela`, 'success');
       } else if (type === 'all_matches') {
         await deleteAllMatches();
-        showToast(`Todos los partidos predeterminados han sido eliminados de forma definitiva`, 'success');
+        showToast(`Todos los partidos y sus pronósticos han sido eliminados de forma definitiva`, 'success');
       } else if (type === 'player') {
         await deletePlayer(id);
         showToast(`Jugador "${name}" eliminado`, 'success');
@@ -802,17 +842,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     const updatedMatches = await saveMatch(match);
     
-    // Automatically recalculate and sync quiniela points for all participants
+    // Automatically recalculate and sync tournament standings AND quiniela points!
     try {
-      const updatedQ = await recalculateAllQuinielas(updatedMatches);
-      setQuinielas(updatedQ);
+      const res = await recalculateAllStandingsAndQuinielas(updatedMatches, academies);
+      setQuinielas(res.updatedQuinielas);
     } catch (calcErr) {
-      console.warn('Error al recalcular quinielas tras guardar partido:', calcErr);
+      console.warn('Error al recalcular posiciones y quinielas tras guardar partido:', calcErr);
     }
 
     setEditingMatchId(null);
     onRefresh();
-    showToast('¡Partido guardado y puntos de la quiniela actualizados con éxito!', 'success');
+    showToast('¡Partido guardado y puntos sumados a la Tabla General y a la Quiniela con éxito!', 'success');
   };
 
   const handleSavePlayer = async (e: React.FormEvent) => {
@@ -2319,6 +2359,55 @@ export const AdminView: React.FC<AdminViewProps> = ({
               )}
             </div>
 
+            {/* Panel de Control Oficial de Jornadas y Suma de Puntos a la Tabla General */}
+            {matches.length > 0 && (
+              <div className="rounded-2xl neu-card-gold p-4 sm:p-5 border border-amber-400/40 bg-gradient-to-r from-[#1a1b26] via-[#241f12] to-[#1a1b26] space-y-3 shadow-lg">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                      <h5 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider font-cinzel">
+                        Control Oficial de Jornada: {adminMatchJornadaFilter === 'all' ? (availableMatchJornadas[0] || 'Jornada 1') : adminMatchJornadaFilter}
+                      </h5>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono font-bold">
+                        Suma Oficial de Puntos
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                      Finaliza la jornada para sumar automáticamente todos los marcadores oficiales a la <strong className="text-amber-300">Tabla General de Posiciones</strong> (3 pts PG / 1 pt PE) y a la <strong className="text-amber-300">Quiniela Oficial</strong> (+5 exacto / +2 acierto).
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+                    <button
+                      type="button"
+                      disabled={isFinishingJornada}
+                      onClick={() => {
+                        const targetJ = adminMatchJornadaFilter === 'all' ? (availableMatchJornadas[0] || 'Jornada 1') : adminMatchJornadaFilter;
+                        handleFinishJornada(targetJ);
+                      }}
+                      className="px-4 py-2.5 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
+                      title="Marca todos los partidos de esta jornada como finalizados y suma puntos a la tabla y a la quiniela"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-black" />
+                      <span>{isFinishingJornada ? 'Finalizando...' : `Finalizar ${adminMatchJornadaFilter === 'all' ? (availableMatchJornadas[0] || 'Jornada 1') : adminMatchJornadaFilter} y Sumar Puntos`}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isRecalculatingQuinielas}
+                      onClick={handleRecalculatePoints}
+                      className="px-3.5 py-2.5 rounded-xl neu-btn-dark text-amber-300 hover:text-white text-xs font-bold flex items-center gap-1.5 border border-amber-400/30 active:scale-95 cursor-pointer disabled:opacity-50"
+                      title="Recalcula desde cero todos los puntos de la tabla general y quiniela según marcadores"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRecalculatingQuinielas ? 'animate-spin text-amber-400' : ''}`} />
+                      <span>{isRecalculatingQuinielas ? 'Recalculando...' : 'Recalcular Tabla y Quiniela'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Filter Toolbar for Matches */}
             {matches.length > 0 && (
               <div className="space-y-3 p-4 rounded-2xl neu-pressed border border-white/5">
@@ -2499,6 +2588,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0 w-full sm:w-auto justify-end">
+                    {/* Quick Finish Match Button */}
+                    {m.status !== 'finished' ? (
+                      <button
+                        onClick={() => handleQuickFinishMatch(m)}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow"
+                        title="Marcar como Finalizado y sumar puntos de inmediato a la Tabla General y Quiniela"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Finalizar</span>
+                      </button>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Puntos Sumados</span>
+                      </span>
+                    )}
+
                     <button
                       onClick={() => setLineupModalMatch(m)}
                       className="px-3.5 py-2 rounded-xl neu-btn-gold text-black text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow active:scale-95"
@@ -2512,12 +2618,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         setEditingMatchId(m.id);
                         setMatchForm({
                           ...m,
+                          status: m.status === 'upcoming' ? 'finished' : m.status,
                           referee: m.referee || '',
                           mvp: m.mvp || '',
                           summary: m.summary || ''
                         });
                         setTimeout(() => matchFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
-                        showToast(`Editando partido ${m.homeAcademyName} vs ${m.awayAcademyName}`, 'info');
+                        showToast(`Editando marcador de ${m.homeAcademyName} vs ${m.awayAcademyName}. Al guardar, se sumarán puntos a la tabla.`, 'info');
                       }}
                       className="px-3.5 py-2 rounded-xl neu-btn-dark text-amber-300 text-xs font-bold active:scale-95 transition-all cursor-pointer"
                     >
@@ -3853,7 +3960,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {filteredQuinielas.map((q, idx) => {
-                      const predCount = q.predictions ? Object.keys(q.predictions).length : 0;
+                      const predCount = q.predictions 
+                        ? Object.keys(q.predictions).filter(mId => matches.some(m => m.id === mId)).length 
+                        : 0;
 
                       return (
                         <tr key={q.id} className="hover:bg-white/5 transition-colors">
@@ -4223,67 +4332,78 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
             {/* List of Match Predictions */}
             <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Desglose Partido por Partido ({Object.keys(inspectingQuiniela.predictions || {}).length} pronósticos):
-              </h4>
+              {(() => {
+                const validAdminPredEntries = (Object.entries(inspectingQuiniela.predictions || {}) as [string, MatchPredictionScore][])
+                  .filter(([matchId]) => matches.some(m => m.id === matchId));
 
-              {Object.keys(inspectingQuiniela.predictions || {}).length === 0 ? (
-                <p className="text-xs text-slate-400 italic p-4 text-center">Este participante no tiene pronósticos registrados.</p>
-              ) : (
-                (Object.entries(inspectingQuiniela.predictions || {}) as [string, MatchPredictionScore][]).map(([matchId, pred]) => {
-                  const match = matches.find(m => m.id === matchId);
-                  const evalResult = match ? evaluateMatchPrediction(pred, match) : null;
+                return (
+                  <>
+                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Desglose Partido por Partido ({validAdminPredEntries.length} pronósticos activos):
+                    </h4>
 
-                  return (
-                    <div key={matchId} className="p-4 rounded-2xl neu-card border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 text-[10px] text-amber-400 font-bold uppercase">
-                          <span>{match?.category || 'Torneo'}</span>
-                          <span>•</span>
-                          <span>{match?.stage || 'Fase Regular'}</span>
-                        </div>
-                        <p className="text-sm font-black text-white mt-0.5 truncate">
-                          {match ? `${match.homeAcademyName || 'Equipo Local'} vs ${match.awayAcademyName || 'Equipo Visitante'}` : `Partido ID: ${matchId}`}
-                        </p>
-                        {match?.status === 'finished' ? (
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            Resultado Real: <span className="text-white font-bold">{match.homeScore} - {match.awayScore}</span>
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-blue-400 mt-0.5">
-                            Estado: {match?.status === 'live' ? 'En Vivo' : 'Por Disputar'}
-                          </p>
-                        )}
-                      </div>
+                    {validAdminPredEntries.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic p-4 text-center">
+                        Este participante no tiene pronósticos registrados para los partidos programados actualmente.
+                      </p>
+                    ) : (
+                      validAdminPredEntries.map(([matchId, pred]) => {
+                        const match = matches.find(m => m.id === matchId)!;
+                        const evalResult = evaluateMatchPrediction(pred, match);
 
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="text-right">
-                          <span className="block text-[10px] text-slate-400 uppercase font-bold">Pronóstico</span>
-                          <span className="text-base font-black text-white font-mono">
-                            {pred.homeScore} - {pred.awayScore}
-                          </span>
-                        </div>
+                        return (
+                          <div key={matchId} className="p-4 rounded-2xl neu-card border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 text-[10px] text-amber-400 font-bold uppercase">
+                                <span>{match.category || 'Torneo'}</span>
+                                <span>•</span>
+                                <span>{match.stage || 'Fase Regular'}</span>
+                              </div>
+                              <p className="text-sm font-black text-white mt-0.5 truncate">
+                                {match.homeAcademyName || 'Equipo Local'} vs {match.awayAcademyName || 'Equipo Visitante'}
+                              </p>
+                              {match.status === 'finished' ? (
+                                <p className="text-[11px] text-slate-400 mt-0.5">
+                                  Resultado Real: <span className="text-white font-bold">{match.homeScore} - {match.awayScore}</span>
+                                </p>
+                              ) : (
+                                <p className="text-[11px] text-blue-400 mt-0.5">
+                                  Estado: {match.status === 'live' ? 'En Vivo' : 'Por Disputar'}
+                                </p>
+                              )}
+                            </div>
 
-                        <div className="w-24 text-center">
-                          {evalResult ? (
-                            <span className={`inline-block px-2.5 py-1 rounded-xl text-xs font-bold ${
-                              evalResult.exactHit
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : evalResult.outcomeHit
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                : 'bg-white/5 text-slate-400'
-                            }`}>
-                              +{evalResult.points} pts
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-500">Pendiente</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="text-right">
+                                <span className="block text-[10px] text-slate-400 uppercase font-bold">Pronóstico</span>
+                                <span className="text-base font-black text-white font-mono">
+                                  {pred.homeScore} - {pred.awayScore}
+                                </span>
+                              </div>
+
+                              <div className="w-24 text-center">
+                                {evalResult ? (
+                                  <span className={`inline-block px-2.5 py-1 rounded-xl text-xs font-bold ${
+                                    evalResult.exactHit
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      : evalResult.outcomeHit
+                                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                      : 'bg-white/5 text-slate-400'
+                                  }`}>
+                                    +{evalResult.points} pts
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-500">Pendiente</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Modal Footer Actions */}
