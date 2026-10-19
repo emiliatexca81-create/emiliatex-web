@@ -52,11 +52,19 @@ function getItem<T>(key: string, fallback: T): T {
   }
 }
 
-function setItem<T>(key: string, value: T): void {
+function setItem<T>(key: string, value: T, notify: boolean = true): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-    window.dispatchEvent(new CustomEvent('emiliatex_storage_update', { detail: { key } }));
+    const serialized = JSON.stringify(value);
+    const existing = localStorage.getItem(key);
+    // If the content is identical, do not rewrite and do not dispatch notification
+    if (existing === serialized) {
+      return;
+    }
+    localStorage.setItem(key, serialized);
+    if (notify) {
+      window.dispatchEvent(new CustomEvent('emiliatex_storage_update', { detail: { key } }));
+    }
   } catch (err) {
     console.error(`Error saving ${key} to localStorage:`, err);
   }
@@ -320,7 +328,18 @@ export async function deleteAllMatches(): Promise<TournamentMatch[]> {
 
 export function getPlayers(): Player[] {
   const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_PLAYERS) === 'true';
-  return getItem<Player[]>(KEYS.PLAYERS, isInitialized ? [] : initialPlayers);
+  const stored = getItem<Player[]>(KEYS.PLAYERS, isInitialized ? [] : initialPlayers);
+  if (stored && stored.length > 0 && stored.length < initialPlayers.length) {
+    const existingIds = new Set(stored.map(p => p.id));
+    const merged = [...stored];
+    for (const initP of initialPlayers) {
+      if (!existingIds.has(initP.id)) {
+        merged.push(initP);
+      }
+    }
+    return merged;
+  }
+  return stored;
 }
 
 export async function savePlayer(player: Player): Promise<Player[]> {
@@ -854,7 +873,7 @@ export function subscribeProducts(callback: (products: Product[]) => void): () =
       if (typeof window !== 'undefined') {
         localStorage.setItem(KEYS.INITIALIZED_PRODUCTS, 'true');
       }
-      setItem(KEYS.PRODUCTS, prods);
+      setItem(KEYS.PRODUCTS, prods, false);
       callback(prods);
     },
     (error) => {
@@ -877,7 +896,7 @@ export function subscribeMatches(callback: (matches: TournamentMatch[]) => void)
       if (typeof window !== 'undefined') {
         localStorage.setItem(KEYS.INITIALIZED_MATCHES, 'true');
       }
-      setItem(KEYS.MATCHES, activeMatches);
+      setItem(KEYS.MATCHES, activeMatches, false);
       callback(activeMatches);
     },
     (error) => {
@@ -896,7 +915,7 @@ export function subscribePlayers(callback: (players: Player[]) => void): () => v
       if (typeof window !== 'undefined') {
         localStorage.setItem(KEYS.INITIALIZED_PLAYERS, 'true');
       }
-      setItem(KEYS.PLAYERS, players);
+      setItem(KEYS.PLAYERS, players, false);
       callback(players);
     },
     (error) => {
@@ -915,7 +934,7 @@ export function subscribeAcademies(callback: (academies: Academy[]) => void): ()
       if (typeof window !== 'undefined') {
         localStorage.setItem(KEYS.INITIALIZED_ACADEMIES, 'true');
       }
-      setItem(KEYS.ACADEMIES, academies);
+      setItem(KEYS.ACADEMIES, academies, false);
       callback(academies);
     },
     (error) => {
@@ -931,7 +950,7 @@ export function subscribeOrders(callback: (orders: OrderQuotation[]) => void): (
     collection(db, path),
     (snapshot) => {
       const orders = snapshot.docs.map(d => d.data() as OrderQuotation);
-      setItem(KEYS.ORDERS, orders);
+      setItem(KEYS.ORDERS, orders, false);
       callback(orders);
     },
     (error) => {
@@ -949,7 +968,7 @@ export function subscribeSettings(callback: (settings: AppSettings) => void): ()
     (snapshot) => {
       if (snapshot.exists()) {
         const settings = snapshot.data() as AppSettings;
-        setItem(KEYS.SETTINGS, settings);
+        setItem(KEYS.SETTINGS, settings, false);
         callback(settings);
       } else {
         callback(getSettings());
@@ -1373,7 +1392,7 @@ export function subscribeQuinielas(callback: (quinielas: QuinielaEntry[]) => voi
         if (typeof window !== 'undefined') {
           localStorage.setItem(KEYS.INITIALIZED_QUINIELAS, 'true');
         }
-        setItem(KEYS.QUINIELAS, list);
+        setItem(KEYS.QUINIELAS, list, false);
         callback(list);
       } else {
         callback(getQuinielas());

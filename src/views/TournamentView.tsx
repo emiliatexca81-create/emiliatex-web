@@ -2,25 +2,45 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage } from '../types';
 import { NavPage } from '../components/Navbar';
-import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw } from 'lucide-react';
+import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink } from 'lucide-react';
 import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas } from '../services/storage';
+import { AcademyProfileView } from './AcademyProfileView';
 
 interface TournamentViewProps {
   matches: TournamentMatch[];
   academies: Academy[];
   players: Player[];
+  initialAcademyId?: string | null;
   onSelectMatch?: (match: TournamentMatch) => void;
   onNavigate?: (page: NavPage) => void;
+  onSelectAcademy?: (academy: Academy) => void;
 }
 
 export const TournamentView: React.FC<TournamentViewProps> = ({
   matches,
   academies,
   players,
+  initialAcademyId,
   onSelectMatch,
-  onNavigate
+  onNavigate,
+  onSelectAcademy
 }) => {
   const [activeTab, setActiveTab] = useState<'matches' | 'standings' | 'scorers' | 'academies'>('matches');
+  
+  // Selected academy for official club profile & category player gallery
+  const [selectedAcademyId, setSelectedAcademyId] = useState<string | null>(() => {
+    if (initialAcademyId) return initialAcademyId;
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('academyId');
+    }
+    return null;
+  });
+
+  const selectedAcademy = useMemo(() => {
+    if (!selectedAcademyId) return null;
+    return academies.find(a => a.id === selectedAcademyId) || null;
+  }, [academies, selectedAcademyId]);
   
   // Standings state
   const [standingsCategory, setStandingsCategory] = useState<'all' | TournamentCategory>('all');
@@ -207,12 +227,28 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                           {idx + 1}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 font-bold text-white flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl neu-card p-1 flex items-center justify-center shrink-0 border border-amber-400/30">
+                      <td 
+                        onClick={() => {
+                          setSelectedAcademyId(acad.id);
+                          if (typeof window !== 'undefined') {
+                            const params = new URLSearchParams(window.location.search);
+                            params.set('page', 'tournament');
+                            params.set('academyId', acad.id);
+                            window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
+                          }
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="py-3.5 px-4 font-bold text-white flex items-center gap-3 cursor-pointer group hover:text-amber-300 transition-colors"
+                        title={`Ver perfil oficial y galería de jugadores de ${acad.name}`}
+                      >
+                        <div className="w-8 h-8 rounded-xl neu-card p-1 flex items-center justify-center shrink-0 border border-amber-400/30 group-hover:border-[#D4AF37] group-hover:scale-105 transition-all">
                           <img src={acad.logo} alt={acad.name} className="w-full h-full object-contain rounded" />
                         </div>
                         <div>
-                          <span className="font-extrabold">{acad.name}</span>
+                          <span className="font-extrabold group-hover:text-amber-300 transition-colors flex items-center gap-1.5">
+                            {acad.name}
+                            <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </span>
                           <span className="block text-[10px] text-slate-400 font-normal">{acad.city}</span>
                         </div>
                       </td>
@@ -249,6 +285,40 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
       </div>
     );
   };
+
+  // If an academy is selected, display its official Academy Profile & Category Player Gallery
+  if (selectedAcademy) {
+    return (
+      <AcademyProfileView
+        academy={selectedAcademy}
+        allAcademies={academies}
+        players={players}
+        matches={matches}
+        onBack={() => {
+          setSelectedAcademyId(null);
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            params.delete('academyId');
+            const newQuery = params.toString();
+            const newUrl = newQuery ? `${window.location.pathname}?${newQuery}` : window.location.pathname;
+            window.history.pushState(null, '', newUrl);
+          }
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onSelectMatch={onSelectMatch}
+        onSelectAcademy={(acad) => {
+          setSelectedAcademyId(acad.id);
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            params.set('page', 'tournament');
+            params.set('academyId', acad.id);
+            window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
+          }
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-8 pb-16">
@@ -1331,22 +1401,40 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                   delay: Math.min(idx * 0.04, 0.25),
                   ease: [0.16, 1, 0.3, 1]
                 }}
-                whileHover={{ y: -3, transition: { duration: 0.2 } }}
-                className="rounded-3xl neu-card p-6 space-y-4 transition-all hover:border-[#D4AF37]/50"
+                whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                onClick={() => {
+                  setSelectedAcademyId(acad.id);
+                  if (typeof window !== 'undefined') {
+                    const params = new URLSearchParams(window.location.search);
+                    params.set('page', 'tournament');
+                    params.set('academyId', acad.id);
+                    window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
+                  }
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="group rounded-3xl neu-card p-6 space-y-4 transition-all hover:border-[#D4AF37]/60 cursor-pointer relative overflow-hidden shadow-xl"
               >
+                {/* Visual accent top line with academy primary color */}
+                <div 
+                  className="absolute top-0 inset-x-0 h-1 opacity-70 group-hover:opacity-100 transition-opacity" 
+                  style={{ backgroundColor: acad.primaryColor || '#D4AF37' }}
+                />
+
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl neu-card p-1.5 flex items-center justify-center border border-amber-400/30 shrink-0">
+                  <div className="w-16 h-16 rounded-2xl neu-card p-1.5 flex items-center justify-center border border-amber-400/30 shrink-0 group-hover:border-[#D4AF37] group-hover:scale-105 transition-all">
                     <img
                       src={acad.logo}
                       alt={acad.name}
                       className="w-full h-full object-contain rounded-xl"
                     />
                   </div>
-                  <div>
-                    <h3 className="text-base sm:text-lg font-black text-white font-cinzel">{acad.name}</h3>
+                  <div className="min-w-0">
+                    <h3 className="text-base sm:text-lg font-black text-white font-cinzel group-hover:text-amber-300 transition-colors truncate">
+                      {acad.name}
+                    </h3>
                     <div className="flex items-center gap-1.5 text-xs text-amber-400 font-bold">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>{acad.city}</span>
+                      <MapPin className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{acad.city}</span>
                     </div>
                   </div>
                 </div>
@@ -1354,14 +1442,16 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 <div className="space-y-2 text-xs text-slate-300 pt-3 border-t border-white/5">
                   <div className="flex justify-between px-3 py-2 rounded-xl neu-pressed">
                     <span className="text-slate-400">Director Técnico:</span>
-                    <span className="font-extrabold text-white">{acad.coach}</span>
+                    <span className="font-extrabold text-white truncate max-w-[150px]">{acad.coach}</span>
                   </div>
                   <div className="flex justify-between px-3 py-2 rounded-xl neu-pressed">
                     <span className="text-slate-400">Puntaje Oficial:</span>
                     <span className="font-black text-amber-300 font-cinzel text-sm">{acad.points} PTS</span>
                   </div>
                   <div className="pt-1">
-                    <span className="text-slate-400 block mb-1 text-[11px] font-bold uppercase tracking-wider">Categorías Inscritas:</span>
+                    <span className="text-slate-400 block mb-1 text-[11px] font-bold uppercase tracking-wider">
+                      Categorías Formativas:
+                    </span>
                     <div className="flex flex-wrap gap-1">
                       {(acad.categories && acad.categories.length > 0 ? acad.categories : [acad.category || 'Sub-15']).map(cat => (
                         <span key={cat} className="px-2.5 py-1 rounded-lg neu-pressed text-[#D4AF37] text-[10px] font-bold border border-[#D4AF37]/20">
@@ -1370,6 +1460,15 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                       ))}
                     </div>
                   </div>
+                </div>
+
+                {/* Call to action button banner */}
+                <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs text-amber-400 group-hover:text-amber-300 font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span>Ver Perfil & Galería de Jugadores</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform text-[#D4AF37]" />
                 </div>
               </motion.div>
             ))}

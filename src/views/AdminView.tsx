@@ -48,6 +48,8 @@ import {
   Tag,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   AlertCircle,
   Sparkles,
   Building2,
@@ -62,7 +64,8 @@ import {
   Eye,
   Mail,
   EyeOff,
-  Key
+  Key,
+  Filter
 } from 'lucide-react';
 import { 
   saveProduct, 
@@ -235,10 +238,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
     } else {
       setQuinielas(getQuinielas());
     }
-    const unsub = subscribeQuinielas((list) => {
-      setQuinielas(list);
-    });
-    return () => unsub();
   }, [propQuinielas]);
 
   // Dynamically recalculate live points for all participants in Admin table
@@ -637,13 +636,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
     assists: 0,
     yellowCards: 0,
     redCards: 0,
-    photo: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80',
     matchesPlayed: 1,
-    mvpCount: 0,
-    age: 15
+    mvpCount: 0
   });
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
-  const [playerCategoryFilter, setPlayerCategoryFilter] = useState<string>('all');
+  const [playerCategoryFilter, setPlayerCategoryFilter] = useState<string>('Sub-15');
+  const [playerAcademyFilter, setPlayerAcademyFilter] = useState<string>('all');
+  const [playerSearchQuery, setPlayerSearchQuery] = useState<string>('');
+  const [playerViewLayout, setPlayerViewLayout] = useState<'by_academy' | 'grid'>('by_academy');
+  const [collapsedAcademies, setCollapsedAcademies] = useState<Record<string, boolean>>({});
 
   // 4. Academy Form
   const [academyForm, setAcademyForm] = useState<Partial<Academy>>({
@@ -768,8 +769,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       redCards: 0,
       photo: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80',
       matchesPlayed: 1,
-      mvpCount: 0,
-      age: 15
+      mvpCount: 0
     });
   };
 
@@ -875,8 +875,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       redCards: Number(playerForm.redCards) || 0,
       photo: playerForm.photo || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80',
       matchesPlayed: Number(playerForm.matchesPlayed) || 1,
-      mvpCount: Number(playerForm.mvpCount) || 0,
-      age: Number(playerForm.age) || 15
+      mvpCount: Number(playerForm.mvpCount) || 0
     };
 
     await savePlayer(ply);
@@ -894,8 +893,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       redCards: 0,
       photo: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80',
       matchesPlayed: 1,
-      mvpCount: 0,
-      age: 15
+      mvpCount: 0
     });
     onRefresh();
     showToast(editingPlayerId ? '¡Jugador actualizado con éxito!' : '¡Jugador registrado con éxito en el torneo!', 'success');
@@ -2886,85 +2884,480 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </form>
           </div>
 
-          {/* Existing Players List */}
-          <div className="rounded-3xl neu-card p-6 sm:p-8 space-y-4 shadow-xl border border-white/10">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-4">
-              <h4 className="text-sm font-black text-white uppercase tracking-wider font-cinzel flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#D4AF37]" />
-                <span>Jugadores Inscritos ({players.length})</span>
-              </h4>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs text-slate-400 mr-1">Filtrar:</span>
-                <button
-                  onClick={() => setPlayerCategoryFilter('all')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase transition-all cursor-pointer active:scale-95 ${
-                    playerCategoryFilter === 'all'
-                      ? 'neu-btn-gold text-black shadow'
-                      : 'neu-btn-dark text-slate-300 hover:text-white'
-                  }`}
-                >
-                  Todas
-                </button>
-                {TOURNAMENT_CATEGORIES.map(cat => (
-                  <button
-                    key={cat}
-                    onClick={() => setPlayerCategoryFilter(cat)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase transition-all cursor-pointer active:scale-95 ${
-                      playerCategoryFilter === cat
-                        ? 'neu-btn-gold text-black shadow'
-                        : 'neu-btn-dark text-slate-300 hover:text-white'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {/* Existing Players List with Dual Category + Academy Filtering */}
+          {(() => {
+            const filteredPlayers = players.filter(p => {
+              const matchCat = playerCategoryFilter === 'all' || (p.category || 'Sub-15') === playerCategoryFilter;
+              const matchAcad = playerAcademyFilter === 'all' || p.academyId === playerAcademyFilter || p.academyName === playerAcademyFilter;
+              const matchSearch = playerSearchQuery.trim() === '' || 
+                p.name.toLowerCase().includes(playerSearchQuery.toLowerCase()) ||
+                String(p.number).includes(playerSearchQuery.trim()) ||
+                (p.academyName && p.academyName.toLowerCase().includes(playerSearchQuery.toLowerCase()));
+              return matchCat && matchAcad && matchSearch;
+            });
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
-              {players
-                .filter(p => playerCategoryFilter === 'all' || (p.category || 'Sub-15') === playerCategoryFilter)
-                .map(p => (
-                  <div key={p.id} className="p-3.5 rounded-2xl neu-pressed border border-white/5 hover:border-[#D4AF37]/30 flex items-center justify-between gap-3 transition-all">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <img src={p.photo} alt={p.name} className="w-12 h-12 rounded-full object-cover border-2 border-amber-400/50 shrink-0 shadow" />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="text-xs sm:text-sm font-bold text-white truncate">#{p.number} {p.name}</p>
-                          <span className="px-2 py-0.5 rounded-full neu-pressed-gold text-amber-300 text-[9px] font-mono font-extrabold">
-                            {p.category || 'Sub-15'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400 truncate mt-0.5">{p.academyName} • <span className="text-amber-300 font-semibold">{p.goals} goles</span></p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => handleEditPlayer(p)}
-                        className="p-2 rounded-xl neu-btn-dark text-amber-300 hover:text-white cursor-pointer active:scale-95 shadow"
-                        title="Editar jugador"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setConfirmDeleteModal({
-                            type: 'player',
-                            id: p.id,
-                            name: p.name,
-                            extraInfo: `Academia: ${p.academyName} • Dorsal: #${p.number} • Categoría: ${p.category || 'Sub-15'}`
-                          });
-                        }}
-                        className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/25 transition-all cursor-pointer active:scale-95 border border-red-500/20"
-                        title="Eliminar jugador"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+            // Group players by Academy for neat organization
+            const targetAcademies = playerAcademyFilter === 'all'
+              ? academies
+              : academies.filter(a => a.id === playerAcademyFilter || a.name === playerAcademyFilter);
+
+            const academyGroups = targetAcademies.map(acad => {
+              const acadPlayers = filteredPlayers.filter(p => p.academyId === acad.id || p.academyName === acad.name);
+              return {
+                academy: acad,
+                players: acadPlayers
+              };
+            }).filter(group => playerAcademyFilter !== 'all' || group.players.length > 0);
+
+            // Any unassigned players not matching known academies
+            const unassignedPlayers = filteredPlayers.filter(p => !academies.some(a => a.id === p.academyId || a.name === p.academyName));
+
+            return (
+              <div className="rounded-3xl neu-card p-6 sm:p-8 space-y-6 shadow-xl border border-white/10">
+                {/* Header with Title & Layout Switch */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                  <div>
+                    <h4 className="text-base sm:text-lg font-black text-white uppercase tracking-wider font-cinzel flex items-center gap-2">
+                      <Users className="w-5 h-5 text-[#D4AF37]" />
+                      <span>Jugadores Registrados ({filteredPlayers.length} de {players.length})</span>
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Filtrado simultáneo por Categoría y por Academia para organizar y evitar listas infinitas
+                    </p>
                   </div>
-                ))}
-            </div>
-          </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Accordion bulk controls when grouped */}
+                    {playerViewLayout === 'by_academy' && (
+                      <div className="flex items-center gap-1.5 mr-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next: Record<string, boolean> = {};
+                            academies.forEach(a => { next[a.id] = true; });
+                            setCollapsedAcademies(next);
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold neu-pressed text-slate-400 hover:text-white transition-all cursor-pointer flex items-center gap-1"
+                          title="Colapsar todos los clubes en un índice compacto"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                          <span>Colapsar Todos</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCollapsedAcademies({})}
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold neu-pressed text-amber-300 hover:text-white transition-all cursor-pointer flex items-center gap-1"
+                          title="Expandir todos los clubes"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                          <span>Expandir Todos</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Layout switcher */}
+                    <button
+                      type="button"
+                      onClick={() => setPlayerViewLayout('by_academy')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        playerViewLayout === 'by_academy'
+                          ? 'neu-btn-gold text-black shadow'
+                          : 'neu-pressed text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>Agrupado por Club</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlayerViewLayout('grid')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        playerViewLayout === 'grid'
+                          ? 'neu-btn-gold text-black shadow'
+                          : 'neu-pressed text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <span>Lista Plana</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* FILTER 1: CATEGORÍA FORMATIVA */}
+                <div className="space-y-2 p-4 rounded-2xl neu-pressed">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span className="font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-[#D4AF37]" />
+                      <span>1. Filtrar por Categoría:</span>
+                    </span>
+                    <span className="text-slate-400 font-mono text-[11px]">
+                      {playerCategoryFilter === 'all' ? 'Todas las Categorías' : playerCategoryFilter}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-nowrap sm:flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setPlayerCategoryFilter('all')}
+                      className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase transition-all cursor-pointer ${
+                        playerCategoryFilter === 'all'
+                          ? 'neu-btn-gold text-black shadow'
+                          : 'neu-btn-dark text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Todas ({players.length})
+                    </button>
+                    {TOURNAMENT_CATEGORIES.map(cat => {
+                      const countInCat = players.filter(p => (p.category || 'Sub-15') === cat).length;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setPlayerCategoryFilter(cat)}
+                          className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase transition-all cursor-pointer ${
+                            playerCategoryFilter === cat
+                              ? 'neu-btn-gold text-black shadow'
+                              : 'neu-btn-dark text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {cat} ({countInCat})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* FILTER 2: ACADEMIA / CLUB */}
+                <div className="space-y-2 p-4 rounded-2xl neu-pressed">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span className="font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-[#D4AF37]" />
+                      <span>2. Filtrar por Academia / Club:</span>
+                    </span>
+                    <span className="text-slate-400 font-mono text-[11px]">
+                      {playerAcademyFilter === 'all' 
+                        ? 'Todos los Clubes' 
+                        : (academies.find(a => a.id === playerAcademyFilter)?.name || playerAcademyFilter)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-nowrap sm:flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setPlayerAcademyFilter('all')}
+                      className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        playerAcademyFilter === 'all'
+                          ? 'neu-btn-gold text-black shadow'
+                          : 'neu-btn-dark text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Todos los Clubes ({academies.length})
+                    </button>
+                    {academies.map(acad => {
+                      const countInAcad = players.filter(p => {
+                        const matchCat = playerCategoryFilter === 'all' || (p.category || 'Sub-15') === playerCategoryFilter;
+                        return matchCat && (p.academyId === acad.id || p.academyName === acad.name);
+                      }).length;
+                      const isSelected = playerAcademyFilter === acad.id;
+                      return (
+                        <button
+                          key={acad.id}
+                          type="button"
+                          onClick={() => setPlayerAcademyFilter(acad.id)}
+                          className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'neu-btn-gold text-black shadow'
+                              : 'neu-btn-dark text-slate-300 hover:text-white'
+                          }`}
+                        >
+                          <img src={acad.logo} alt={acad.name} className="w-4 h-4 object-contain rounded-full" />
+                          <span className="truncate max-w-[130px]">{acad.name}</span>
+                          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                            isSelected ? 'bg-black/20 text-black font-extrabold' : 'bg-white/10 text-amber-400'
+                          }`}>
+                            {countInAcad}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* SEARCH INPUT */}
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={playerSearchQuery}
+                    onChange={(e) => setPlayerSearchQuery(e.target.value)}
+                    placeholder="Buscar jugador por nombre, dorsal o club..."
+                    className="w-full pl-10 pr-10 py-2.5 rounded-2xl neu-pressed text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-[#D4AF37] border border-white/5 transition-all"
+                  />
+                  {playerSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPlayerSearchQuery('')}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* DISPLAY AREA */}
+                {filteredPlayers.length === 0 ? (
+                  <div className="p-8 rounded-2xl neu-pressed text-center space-y-3">
+                    <p className="text-slate-300 text-sm font-bold">
+                      No se encontraron jugadores con los filtros seleccionados
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Categoría: {playerCategoryFilter} • Club: {playerAcademyFilter === 'all' ? 'Todos' : playerAcademyFilter}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlayerCategoryFilter('all');
+                        setPlayerAcademyFilter('all');
+                        setPlayerSearchQuery('');
+                      }}
+                      className="px-4 py-2 rounded-xl neu-btn-gold text-black text-xs font-bold cursor-pointer"
+                    >
+                      Limpiar Filtros
+                    </button>
+                  </div>
+                ) : playerViewLayout === 'by_academy' ? (
+                  /* GROUPED BY ACADEMY VIEW - ORGANIZED AND READABLE */
+                  <div className="space-y-6">
+                    {academyGroups.map(group => {
+                      const isCollapsed = !!collapsedAcademies[group.academy.id];
+                      return (
+                        <div key={group.academy.id} className="rounded-2xl neu-card border border-white/10 overflow-hidden transition-all shadow-md">
+                          {/* Club Header Bar (Clickable Accordion) */}
+                          <div 
+                            onClick={() => {
+                              setCollapsedAcademies(prev => ({
+                                ...prev,
+                                [group.academy.id]: !prev[group.academy.id]
+                              }));
+                            }}
+                            className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-white/[0.04] to-transparent hover:from-white/[0.07] transition-all cursor-pointer select-none"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-10 rounded-xl neu-pressed p-1 flex items-center justify-center border border-amber-400/30 shrink-0">
+                                <img src={group.academy.logo} alt={group.academy.name} className="w-full h-full object-contain rounded" />
+                              </div>
+                              <div className="min-w-0">
+                                <h5 className="text-sm sm:text-base font-black text-white font-cinzel flex items-center gap-2 flex-wrap">
+                                  <span className="truncate">{group.academy.name}</span>
+                                  {group.academy.acronym && (
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded neu-pressed text-amber-300">
+                                      {group.academy.acronym}
+                                    </span>
+                                  )}
+                                </h5>
+                                <p className="text-xs text-slate-400 truncate">
+                                  {group.academy.city} • DT: {group.academy.coach}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                              <span className="px-2.5 py-1 rounded-full neu-pressed text-amber-300 font-mono text-xs font-bold border border-amber-400/20">
+                                {group.players.length} {group.players.length === 1 ? 'jugador' : 'jugadores'} {playerCategoryFilter !== 'all' ? `en ${playerCategoryFilter}` : ''}
+                              </span>
+                              
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPlayerForm(prev => ({
+                                    ...prev,
+                                    academyId: group.academy.id,
+                                    academyName: group.academy.name,
+                                    category: playerCategoryFilter !== 'all' ? playerCategoryFilter : prev.category
+                                  }));
+                                  playerFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  showToast(`Formulario listo para inscribir en ${group.academy.name}`, 'info');
+                                }}
+                                className="px-3 py-1 rounded-xl neu-btn-gold text-black text-xs font-extrabold flex items-center gap-1 active:scale-95 cursor-pointer shadow"
+                                title={`Fichar nuevo jugador en ${group.academy.name}`}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Inscribir en este Club</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                className="w-8 h-8 rounded-xl neu-btn-dark text-slate-300 flex items-center justify-center hover:text-white transition-colors"
+                                title={isCollapsed ? "Expandir nómina de este club" : "Colapsar nómina"}
+                              >
+                                {isCollapsed ? <ChevronDown className="w-4 h-4 text-amber-400" /> : <ChevronUp className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Players Grid when not collapsed */}
+                          {!isCollapsed && (
+                            <div className="p-4 sm:p-5 pt-0 border-t border-white/5 space-y-3">
+                              {group.players.length === 0 ? (
+                                <div className="p-4 rounded-xl neu-pressed text-center space-y-2 mt-3">
+                                  <p className="text-xs text-slate-400">
+                                    No hay jugadores registrados en este club para la categoría {playerCategoryFilter !== 'all' ? playerCategoryFilter : 'seleccionada'}.
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPlayerForm(prev => ({
+                                        ...prev,
+                                        academyId: group.academy.id,
+                                        academyName: group.academy.name,
+                                        category: playerCategoryFilter !== 'all' ? playerCategoryFilter : prev.category
+                                      }));
+                                      playerFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl neu-btn-gold text-black text-xs font-bold cursor-pointer"
+                                  >
+                                    + Registrar Primer Jugador
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+                                  {group.players.map(p => (
+                                    <div key={p.id} className="p-3 rounded-2xl neu-pressed border border-white/5 hover:border-[#D4AF37]/30 flex items-center justify-between gap-3 transition-all">
+                                      <div className="flex items-center gap-2.5 min-w-0">
+                                        <img src={p.photo} alt={p.name} className="w-10 h-10 rounded-full object-cover border border-amber-400/50 shrink-0 shadow" />
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <p className="text-xs font-bold text-white truncate">#{p.number} {p.name}</p>
+                                            <span className="px-1.5 py-0.2 rounded-md neu-pressed-gold text-amber-300 text-[9px] font-mono font-extrabold">
+                                              {p.category || 'Sub-15'}
+                                            </span>
+                                          </div>
+                                          <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                                            {p.position} • <span className="text-amber-300 font-semibold">{p.goals}G</span> • <span className="text-white">{p.assists}A</span>
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleEditPlayer(p)}
+                                          className="p-1.5 rounded-lg neu-btn-dark text-amber-300 hover:text-white cursor-pointer active:scale-95 shadow"
+                                          title="Editar jugador"
+                                        >
+                                          <Edit3 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setConfirmDeleteModal({
+                                              type: 'player',
+                                              id: p.id,
+                                              name: p.name,
+                                              extraInfo: `Academia: ${p.academyName} • Dorsal: #${p.number} • Categoría: ${p.category || 'Sub-15'}`
+                                            });
+                                          }}
+                                          className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/25 transition-all cursor-pointer active:scale-95 border border-red-500/20"
+                                          title="Eliminar jugador"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Unassigned players if any */}
+                    {unassignedPlayers.length > 0 && (
+                      <div className="rounded-2xl neu-card p-4 sm:p-5 border border-white/10 space-y-3">
+                        <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Otros Clubes / Sin Club Asignado</h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {unassignedPlayers.map(p => (
+                            <div key={p.id} className="p-3 rounded-2xl neu-pressed border border-white/5 flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <img src={p.photo} alt={p.name} className="w-10 h-10 rounded-full object-cover border border-amber-400/50 shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-white truncate">#{p.number} {p.name}</p>
+                                  <p className="text-[11px] text-slate-400 truncate">{p.academyName} • {p.category}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button type="button" onClick={() => handleEditPlayer(p)} className="p-1.5 rounded-lg neu-btn-dark text-amber-300">
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setConfirmDeleteModal({
+                                      type: 'player',
+                                      id: p.id,
+                                      name: p.name,
+                                      extraInfo: `Academia: ${p.academyName} • Dorsal: #${p.number}`
+                                    });
+                                  }}
+                                  className="p-1.5 rounded-lg bg-red-500/10 text-red-400"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* FLAT GRID VIEW */
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+                    {filteredPlayers.map(p => (
+                      <div key={p.id} className="p-3.5 rounded-2xl neu-pressed border border-white/5 hover:border-[#D4AF37]/30 flex items-center justify-between gap-3 transition-all">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <img src={p.photo} alt={p.name} className="w-12 h-12 rounded-full object-cover border-2 border-amber-400/50 shrink-0 shadow" />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs sm:text-sm font-bold text-white truncate">#{p.number} {p.name}</p>
+                              <span className="px-2 py-0.5 rounded-full neu-pressed-gold text-amber-300 text-[9px] font-mono font-extrabold">
+                                {p.category || 'Sub-15'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-400 truncate mt-0.5">{p.academyName} • <span className="text-amber-300 font-semibold">{p.goals} goles</span></p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleEditPlayer(p)}
+                            className="p-2 rounded-xl neu-btn-dark text-amber-300 hover:text-white cursor-pointer active:scale-95 shadow"
+                            title="Editar jugador"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmDeleteModal({
+                                type: 'player',
+                                id: p.id,
+                                name: p.name,
+                                extraInfo: `Academia: ${p.academyName} • Dorsal: #${p.number} • Categoría: ${p.category || 'Sub-15'}`
+                              });
+                            }}
+                            className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/25 transition-all cursor-pointer active:scale-95 border border-red-500/20"
+                            title="Eliminar jugador"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 

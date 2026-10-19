@@ -107,10 +107,9 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // When matches change or load, purge any orphaned predictions from user state and storage
+  // When matches change or load, purge any orphaned predictions from local user draft state in memory
   useEffect(() => {
     if (matches.length > 0) {
-      // 1. Sanitize local draft state
       setPredictions(prev => {
         const validMatchIds = new Set(matches.map(m => m.id));
         let hasOrphan = false;
@@ -123,15 +122,6 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
           }
         }
         return hasOrphan ? clean : prev;
-      });
-
-      // 2. Automatically cleanse all quinielas in Firestore & localStorage from deleted matches
-      purgeAllOrphanedPredictions(matches).then(cleaned => {
-        if (cleaned && cleaned.length > 0) {
-          setRawQuinielas(cleaned);
-        }
-      }).catch(err => {
-        console.warn('Auto orphan purge notice:', err);
       });
     }
   }, [matches]);
@@ -159,23 +149,6 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
 
     return list;
   }, [rawQuinielas, matches]);
-
-  // Keep Firestore persisted points in sync in the background if matches were updated or deleted
-  useEffect(() => {
-    if (matches.length > 0 && rawQuinielas.length > 0) {
-      const validMatchIds = new Set(matches.map(m => m.id));
-      const hasStaleOrOrphan = rawQuinielas.some(q => {
-        const stats = computeTotalQuinielaStats(q.predictions || {}, matches);
-        const hasOrphan = q.predictions && Object.keys(q.predictions).some(mId => !validMatchIds.has(mId));
-        return hasOrphan || stats.totalPoints !== q.totalPoints || stats.exactHitsCount !== q.exactHitsCount;
-      });
-      if (hasStaleOrOrphan) {
-        recalculateAllQuinielas(matches, rawQuinielas).then(updated => {
-          setRawQuinielas(updated);
-        }).catch(() => {});
-      }
-    }
-  }, [matches, rawQuinielas]);
 
   // Compute live user stats based on their predictions & current match states
   const userLiveStats = useMemo(() => {

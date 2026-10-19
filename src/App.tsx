@@ -95,11 +95,13 @@ function AppContent() {
       }
       setSelectedMatchId(null);
 
-      if (pageParam && ['home', 'catalog', 'tournament', 'admin'].includes(pageParam)) {
+      if (pageParam && ['home', 'catalog', 'tournament', 'quiniela', 'admin'].includes(pageParam)) {
         setCurrentPage(pageParam);
       } else if (params.get('adminSection')) {
         setCurrentPage('admin');
         setInitialAdminSection(params.get('adminSection'));
+      } else if (params.get('academyId')) {
+        setCurrentPage('tournament');
       } else {
         setCurrentPage('home');
       }
@@ -107,8 +109,26 @@ function AppContent() {
     window.addEventListener('popstate', handlePopState);
 
     // Listen to reactive updates from local storage
-    const handleStorageUpdate = () => {
-      loadData();
+    const handleStorageUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const key = customEvent.detail?.key;
+      if (key === 'emiliatex_products_v1') {
+        setProducts(getProducts());
+      } else if (key === 'emiliatex_matches_v1') {
+        setMatches(getMatches());
+      } else if (key === 'emiliatex_players_v1') {
+        setPlayers(getPlayers());
+      } else if (key === 'emiliatex_academies_v1') {
+        setAcademies(getAcademies());
+      } else if (key === 'emiliatex_orders_v1') {
+        setOrders(getOrders());
+      } else if (key === 'emiliatex_settings_v1') {
+        setSettings(getSettings());
+      } else if (key === 'emiliatex_quinielas_v1') {
+        setQuinielas(getQuinielas());
+      } else {
+        loadData();
+      }
     };
     window.addEventListener('emiliatex_storage_update', handleStorageUpdate);
 
@@ -152,6 +172,14 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleSelectAcademy = (academy: Academy) => {
+    setSelectedMatchId(null);
+    setCurrentPage('tournament');
+    const newUrl = `${window.location.pathname}?page=tournament&academyId=${academy.id}`;
+    window.history.pushState(null, '', newUrl);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleBackFromMatch = () => {
     setSelectedMatchId(null);
     const newUrl = `${window.location.pathname}?page=tournament`;
@@ -190,6 +218,7 @@ function AppContent() {
               players={players}
               onBack={handleBackFromMatch}
               onSelectMatch={handleSelectMatch}
+              onSelectAcademy={handleSelectAcademy}
             />
           </motion.div>
         ) : (
@@ -223,6 +252,7 @@ function AppContent() {
                 players={players}
                 onSelectMatch={handleSelectMatch}
                 onNavigate={handleNavigate}
+                onSelectAcademy={handleSelectAcademy}
               />
             )}
 

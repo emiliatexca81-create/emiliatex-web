@@ -105,7 +105,6 @@ export interface Player {
   photo: string;
   matchesPlayed: number;
   mvpCount: number;
-  age?: number;
 }
 
 export interface Academy {

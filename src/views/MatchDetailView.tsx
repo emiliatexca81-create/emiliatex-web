@@ -23,6 +23,7 @@ interface MatchDetailViewProps {
   players: Player[];
   onBack: () => void;
   onSelectMatch?: (match: TournamentMatch) => void;
+  onSelectAcademy?: (academy: Academy) => void;
 }
 
 export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
@@ -30,7 +31,8 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
   academies,
   players,
   onBack,
-  onSelectMatch
+  onSelectMatch,
+  onSelectAcademy
 }) => {
   const [activeTab, setActiveTab] = useState<'lineups' | 'events' | 'info'>('lineups');
   const [copySuccess, setCopySuccess] = useState(false);
@@ -213,9 +215,13 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
         <div className="p-4 sm:p-10">
           <div className="grid grid-cols-7 items-center gap-1.5 sm:gap-6 text-center">
             {/* Home Team */}
-            <div className="col-span-3 flex flex-col items-center space-y-2 sm:space-y-3">
-              <div className="relative group">
-                <div className="w-14 h-14 sm:w-28 sm:h-28 rounded-full p-0.5 sm:p-1 bg-gradient-to-tr from-[#D4AF37] to-amber-200 shadow-xl overflow-hidden">
+            <div 
+              onClick={() => homeAcademy && onSelectAcademy && onSelectAcademy(homeAcademy)}
+              className={`col-span-3 flex flex-col items-center space-y-2 sm:space-y-3 ${homeAcademy ? 'cursor-pointer group' : ''}`}
+              title={homeAcademy ? `Ver perfil y jugadores de ${homeAcademy.name}` : undefined}
+            >
+              <div className="relative">
+                <div className="w-14 h-14 sm:w-28 sm:h-28 rounded-full p-0.5 sm:p-1 bg-gradient-to-tr from-[#D4AF37] to-amber-200 shadow-xl overflow-hidden group-hover:scale-105 transition-transform">
                   <img
                     src={match.homeLogo}
                     alt={match.homeAcademyName}
@@ -228,7 +234,7 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
               </div>
 
               <div className="space-y-0.5 sm:space-y-1">
-                <h2 className="text-xs sm:text-2xl font-black font-cinzel text-white leading-tight line-clamp-2">
+                <h2 className="text-xs sm:text-2xl font-black font-cinzel text-white leading-tight line-clamp-2 group-hover:text-amber-300 transition-colors">
                   {match.homeAcademyName}
                 </h2>
                 {homeAcademy?.city && (
@@ -276,9 +282,13 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
             </div>
 
             {/* Away Team */}
-            <div className="col-span-3 flex flex-col items-center space-y-2 sm:space-y-3">
-              <div className="relative group">
-                <div className="w-14 h-14 sm:w-28 sm:h-28 rounded-full p-0.5 sm:p-1 bg-gradient-to-tr from-slate-400 to-slate-100 shadow-xl overflow-hidden">
+            <div 
+              onClick={() => awayAcademy && onSelectAcademy && onSelectAcademy(awayAcademy)}
+              className={`col-span-3 flex flex-col items-center space-y-2 sm:space-y-3 ${awayAcademy ? 'cursor-pointer group' : ''}`}
+              title={awayAcademy ? `Ver perfil y jugadores de ${awayAcademy.name}` : undefined}
+            >
+              <div className="relative">
+                <div className="w-14 h-14 sm:w-28 sm:h-28 rounded-full p-0.5 sm:p-1 bg-gradient-to-tr from-slate-400 to-slate-100 shadow-xl overflow-hidden group-hover:scale-105 transition-transform">
                   <img
                     src={match.awayLogo}
                     alt={match.awayAcademyName}
@@ -291,7 +301,7 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
               </div>
 
               <div className="space-y-0.5 sm:space-y-1">
-                <h2 className="text-xs sm:text-2xl font-black font-cinzel text-white leading-tight line-clamp-2">
+                <h2 className="text-xs sm:text-2xl font-black font-cinzel text-white leading-tight line-clamp-2 group-hover:text-amber-300 transition-colors">
                   {match.awayAcademyName}
                 </h2>
                 {awayAcademy?.city && (
