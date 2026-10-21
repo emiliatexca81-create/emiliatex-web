@@ -191,4 +191,6 @@ export interface ClientWorkItem {
   technique?: string; // Ej: "Sublimación Full Print HD", "Bordado Computarizado 3D", "Tela Dry-Tech"
   tags?: string[];
   featured?: boolean;
+  userId?: string;
+  userEmail?: string;
 }

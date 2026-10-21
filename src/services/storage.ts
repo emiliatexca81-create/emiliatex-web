@@ -40,6 +40,7 @@ const KEYS = {
   DELETED_MATCH_IDS: 'emiliatex_deleted_match_ids_v1',
   INITIALIZED_QUINIELAS: 'emiliatex_quinielas_initialized_v1',
   DELETED_QUINIELA_IDS: 'emiliatex_deleted_quiniela_ids_v1',
+  DELETED_CLIENT_WORK_IDS: 'emiliatex_deleted_client_works_ids_v1',
 };
 
 // Safe localStorage accessor
@@ -95,6 +96,24 @@ export function markQuinielaAsDeleted(id: string): void {
   const current = getDeletedQuinielaIds();
   if (!current.includes(id)) {
     setItem(KEYS.DELETED_QUINIELA_IDS, [...current, id]);
+  }
+}
+
+export function getDeletedClientWorkIds(): string[] {
+  return getItem<string[]>(KEYS.DELETED_CLIENT_WORK_IDS, []);
+}
+
+export function markClientWorkAsDeleted(id: string): void {
+  const current = getDeletedClientWorkIds();
+  if (!current.includes(id)) {
+    setItem(KEYS.DELETED_CLIENT_WORK_IDS, [...current, id]);
+  }
+}
+
+export function unmarkClientWorkAsDeleted(id: string): void {
+  const current = getDeletedClientWorkIds();
+  if (current.includes(id)) {
+    setItem(KEYS.DELETED_CLIENT_WORK_IDS, current.filter(x => x !== id));
   }
 }
 
@@ -1408,20 +1427,13 @@ export function subscribeQuinielas(callback: (quinielas: QuinielaEntry[]) => voi
 export function getClientWorks(): ClientWorkItem[] {
   const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_CLIENT_WORKS) === 'true';
   const stored = getItem<ClientWorkItem[]>(KEYS.CLIENT_WORKS, isInitialized ? [] : initialClientWorks);
-  if (stored && stored.length > 0 && stored.length < initialClientWorks.length) {
-    const existingIds = new Set(stored.map(item => item.id));
-    const merged = [...stored];
-    for (const initW of initialClientWorks) {
-      if (!existingIds.has(initW.id)) {
-        merged.push(initW);
-      }
-    }
-    return merged;
-  }
-  return stored;
+  const deletedIds = getDeletedClientWorkIds();
+  if (deletedIds.length === 0) return stored;
+  return stored.filter(item => !deletedIds.includes(item.id));
 }
 
 export async function saveClientWork(item: ClientWorkItem): Promise<ClientWorkItem[]> {
+  unmarkClientWorkAsDeleted(item.id);
   const current = getClientWorks();
   const existsIdx = current.findIndex(w => w.id === item.id);
   let updated: ClientWorkItem[];
@@ -1445,6 +1457,7 @@ export async function saveClientWork(item: ClientWorkItem): Promise<ClientWorkIt
 }
 
 export async function deleteClientWork(id: string): Promise<ClientWorkItem[]> {
+  markClientWorkAsDeleted(id);
   const current = getClientWorks();
   const updated = current.filter(w => w.id !== id);
   if (typeof window !== 'undefined') {
@@ -1457,6 +1470,11 @@ export async function deleteClientWork(id: string): Promise<ClientWorkItem[]> {
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `client_works/${id}`);
   }
+  try {
+    await deleteDoc(doc(db, 'clientWorks', id));
+  } catch {
+    // Ignore alias if absent
+  }
   return updated;
 }
 
@@ -1465,20 +1483,25 @@ export function subscribeClientWorks(callback: (items: ClientWorkItem[]) => void
   return onSnapshot(
     collection(db, path),
     (snapshot) => {
+      const deletedIds = getDeletedClientWorkIds();
       if (!snapshot.empty) {
-        const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as ClientWorkItem));
+        const list = snapshot.docs
+          .map(d => ({ ...d.data(), id: d.id } as ClientWorkItem))
+          .filter(w => !deletedIds.includes(w.id));
         if (typeof window !== 'undefined') {
           localStorage.setItem(KEYS.INITIALIZED_CLIENT_WORKS, 'true');
         }
         setItem(KEYS.CLIENT_WORKS, list, false);
         callback(list);
       } else {
-        callback(getClientWorks());
+        const fallbackList = getClientWorks().filter(w => !deletedIds.includes(w.id));
+        callback(fallbackList);
       }
     },
     (error) => {
       console.warn('Client works subscription notice:', error.message);
-      callback(getClientWorks());
+      const deletedIds = getDeletedClientWorkIds();
+      callback(getClientWorks().filter(w => !deletedIds.includes(w.id)));
     }
   );
 }

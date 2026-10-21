@@ -1066,7 +1066,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
         description: workForm.description.trim() || 'Confección oficial EMILIATEX',
         technique: workForm.technique.trim() || 'Sublimación Digital HD • Dry-Fit',
         tags: workForm.tags ? workForm.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-        featured: workForm.featured
+        featured: workForm.featured,
+        userId: (editingWorkId ? (clientWorksList.find(w => w.id === editingWorkId)?.userId || currentUser?.uid) : currentUser?.uid) || undefined,
+        userEmail: (editingWorkId ? (clientWorksList.find(w => w.id === editingWorkId)?.userEmail || currentUser?.email) : currentUser?.email) || undefined
       };
       const updated = await saveClientWork(item);
       setClientWorksList(updated);

@@ -138,6 +138,29 @@ service cloud.firestore {
              (!('predictions' in data) || data.predictions is map);
     }
 
+    function isValidClientWork(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.clientName is string && data.clientName.size() > 0 && data.clientName.size() <= 150 &&
+             data.imageUrl is string && data.imageUrl.size() > 0 && data.imageUrl.size() <= 500000 &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 3000)) &&
+             (!('yearOrDate' in data) || (data.yearOrDate is string && data.yearOrDate.size() <= 50)) &&
+             (!('technique' in data) || (data.technique is string && data.technique.size() <= 200)) &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 30)) &&
+             (!('featured' in data) || data.featured is bool) &&
+             (!('userId' in data) || (data.userId is string && data.userId.size() <= 128)) &&
+             (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 150));
+    }
+
+    function isWorkOwner(data) {
+      return isSignedIn() && (
+        (('userId' in data) && data.userId == request.auth.uid) ||
+        (('userEmail' in data) && request.auth.token.email != null && data.userEmail == request.auth.token.email) ||
+        isAdmin()
+      );
+    }
+
     // 1. Products - Public read, Admin write
     match /products/{productId} {
       allow read: if true;
@@ -195,6 +218,22 @@ service cloud.firestore {
       allow create: if isValidId(quinielaId) && isValidQuiniela(incoming());
       allow update: if isValidId(quinielaId) && isValidQuiniela(incoming());
       allow delete: if isAdmin() && isValidId(quinielaId);
+    }
+
+    // 9. Client Works (Gallery) - Public read, Owner or Admin update/delete
+    match /client_works/{workId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidId(workId) && isValidClientWork(incoming());
+      allow update: if isWorkOwner(existing()) && isValidId(workId) && isValidClientWork(incoming());
+      allow delete: if isWorkOwner(existing()) && isValidId(workId);
+    }
+
+    // 10. Client Works alias (clientWorks)
+    match /clientWorks/{workId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidId(workId) && isValidClientWork(incoming());
+      allow update: if isWorkOwner(existing()) && isValidId(workId) && isValidClientWork(incoming());
+      allow delete: if isWorkOwner(existing()) && isValidId(workId);
     }
   }
 }

@@ -154,6 +154,26 @@
         "updatedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["id", "userName"]
+    },
+    "ClientWork": {
+      "title": "ClientWork",
+      "description": "Showcase photo of actual garments and uniforms manufactured for real clients",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "clientName": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "maxLength": 100 },
+        "imageUrl": { "type": "string", "maxLength": 500000 },
+        "yearOrDate": { "type": "string", "maxLength": 50 },
+        "description": { "type": "string", "maxLength": 3000 },
+        "technique": { "type": "string", "maxLength": 200 },
+        "tags": { "type": "array" },
+        "featured": { "type": "boolean" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["id", "title", "clientName", "imageUrl"]
     }
   },
   "firestore": {
@@ -188,6 +208,14 @@
     "/quinielas/{quinielaId}": {
       "schema": "Quiniela",
       "description": "Public community predictions and leaderboard for Torneo Elite EMILIATEX."
+    },
+    "/client_works/{workId}": {
+      "schema": "ClientWork",
+      "description": "Public gallery of client works and manufactured uniforms. Managed by creator or admin."
+    },
+    "/clientWorks/{workId}": {
+      "schema": "ClientWork",
+      "description": "Alias path for gallery client works. Managed by creator or admin."
     }
   }
 }
