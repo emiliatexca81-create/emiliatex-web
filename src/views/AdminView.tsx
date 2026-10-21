@@ -12,7 +12,9 @@ import {
   MATCH_STAGES,
   MatchStage,
   QuinielaEntry,
-  MatchPredictionScore
+  MatchPredictionScore,
+  ClientWorkItem,
+  ClientWorkCategory
 } from '../types';
 import { 
   Shirt, 
@@ -65,7 +67,8 @@ import {
   Mail,
   EyeOff,
   Key,
-  Filter
+  Filter,
+  Camera
 } from 'lucide-react';
 import { 
   saveProduct, 
@@ -96,7 +99,10 @@ import {
   getActiveOrLatestJornada,
   finishJornadaMatches,
   syncAcademyStandingsToStorage,
-  recalculateAllStandingsAndQuinielas
+  recalculateAllStandingsAndQuinielas,
+  getClientWorks,
+  saveClientWork,
+  deleteClientWork
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
 import { doc, setDoc } from 'firebase/firestore';
@@ -125,11 +131,12 @@ interface AdminViewProps {
   orders: OrderQuotation[];
   settings: AppSettings;
   quinielas?: QuinielaEntry[];
+  clientWorks?: ClientWorkItem[];
   onRefresh: () => void;
   initialSection?: AdminSection;
 }
 
-type AdminSection = 'menu' | 'add_product' | 'add_match' | 'add_player' | 'add_academy' | 'view_orders' | 'view_quinielas';
+type AdminSection = 'menu' | 'add_product' | 'add_match' | 'add_player' | 'add_academy' | 'view_orders' | 'view_quinielas' | 'manage_gallery';
 
 export const AdminView: React.FC<AdminViewProps> = ({
   products,
@@ -139,6 +146,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   orders,
   settings,
   quinielas: propQuinielas,
+  clientWorks: propClientWorks,
   onRefresh,
   initialSection
 }) => {
@@ -269,9 +277,61 @@ export const AdminView: React.FC<AdminViewProps> = ({
     );
   }, [dynamicallyScoredQuinielas, quinielaSearch]);
 
+  // Client Gallery (4:5) Management States
+  const [clientWorksList, setClientWorksList] = useState<ClientWorkItem[]>(() => propClientWorks || getClientWorks());
+  const [clientWorkSearch, setClientWorkSearch] = useState('');
+  const [clientWorkCategoryFilter, setClientWorkCategoryFilter] = useState<'all' | ClientWorkCategory>('all');
+  const [editingWorkId, setEditingWorkId] = useState<string | null>(null);
+  const [isSavingWork, setIsSavingWork] = useState(false);
+  const workFormRef = useRef<HTMLDivElement>(null);
+
+  const [workForm, setWorkForm] = useState<{
+    title: string;
+    clientName: string;
+    category: ClientWorkCategory;
+    imageUrl: string;
+    yearOrDate: string;
+    description: string;
+    technique: string;
+    tags: string;
+    featured: boolean;
+  }>({
+    title: '',
+    clientName: '',
+    category: 'futbol',
+    imageUrl: '',
+    yearOrDate: 'Temporada 2026',
+    description: '',
+    technique: 'Sublimación Digital HD • Dry-Fit Microperforado',
+    tags: 'Sublimación, Cuello V, Calidad Exportación',
+    featured: false
+  });
+
+  useEffect(() => {
+    if (propClientWorks) {
+      setClientWorksList(propClientWorks);
+    } else {
+      setClientWorksList(getClientWorks());
+    }
+  }, [propClientWorks]);
+
+  const filteredClientWorks = useMemo(() => {
+    return clientWorksList.filter(item => {
+      if (clientWorkCategoryFilter !== 'all' && item.category !== clientWorkCategoryFilter) {
+        return false;
+      }
+      if (clientWorkSearch.trim()) {
+        const q = clientWorkSearch.toLowerCase().trim();
+        const text = `${item.title} ${item.clientName} ${item.description} ${item.technique || ''}`.toLowerCase();
+        if (!text.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [clientWorksList, clientWorkCategoryFilter, clientWorkSearch]);
+
   // In-App Confirmation Modal (solves confirm() blocked in iframe)
   const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
-    type: 'academy' | 'match' | 'player' | 'product' | 'order' | 'all_matches' | 'quiniela' | 'all_quinielas' | 'sample_quinielas';
+    type: 'academy' | 'match' | 'player' | 'product' | 'order' | 'all_matches' | 'quiniela' | 'all_quinielas' | 'sample_quinielas' | 'client_work';
     id: string;
     name: string;
     extraInfo?: string;
@@ -295,7 +355,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const res = await recalculateAllStandingsAndQuinielas(matches, academies);
       setQuinielas(res.updatedQuinielas);
       onRefresh();
-      showToast(`¡Puntos recalculados y sumados con éxito en la Tabla General (${res.updatedAcademies.length} clubes) y en la Quiniela (${res.updatedQuinielas.length} participantes)!`, 'success');
+      showToast(`¡Puntos recalculados y sumados con éxito en las Tablas por Categoría (${res.updatedAcademies.length} clubes) y en la Quiniela (${res.updatedQuinielas.length} participantes)!`, 'success');
     } catch (err: any) {
       console.error('Error al recalcular:', err);
       showToast('Error al recalcular puntuaciones: ' + (err?.message || 'Error inesperado'), 'error');
@@ -310,7 +370,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const res = await finishJornadaMatches(targetJornada, matches, academies);
       setQuinielas(res.updatedQuinielas);
       onRefresh();
-      showToast(`¡${targetJornada} finalizada con éxito! Todos sus partidos quedaron marcados como finalizados y se sumaron los puntos en la Tabla General y en la Quiniela.`, 'success');
+      showToast(`¡${targetJornada} finalizada con éxito! Todos sus partidos quedaron marcados como finalizados y se sumaron los puntos en las Tablas por Categoría y en la Quiniela.`, 'success');
     } catch (err: any) {
       console.error('Error al finalizar jornada:', err);
       showToast('Error al finalizar jornada: ' + (err?.message || 'Error inesperado'), 'error');
@@ -331,7 +391,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const res = await recalculateAllStandingsAndQuinielas(updatedMatches, academies);
       setQuinielas(res.updatedQuinielas);
       onRefresh();
-      showToast(`¡Partido "${m.homeAcademyName} vs ${m.awayAcademyName}" finalizado! Puntos sumados en Tabla General y Quiniela.`, 'success');
+      showToast(`¡Partido "${m.homeAcademyName} vs ${m.awayAcademyName}" finalizado! Puntos sumados en las Tablas por Categoría y Quiniela.`, 'success');
     } catch (err: any) {
       console.error('Error al finalizar partido:', err);
       showToast('Error al finalizar partido: ' + (err?.message || 'Error'), 'error');
@@ -379,6 +439,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const updated = await deleteAllQuinielas();
         setQuinielas(updated);
         showToast(`Todos los registros de la quiniela han sido eliminados de forma definitiva`, 'success');
+      } else if (type === 'client_work') {
+        const updated = await deleteClientWork(id);
+        setClientWorksList(updated);
+        showToast(`Trabajo "${name}" eliminado de la galería 4:5`, 'success');
       }
       onRefresh();
       setConfirmDeleteModal(null);
@@ -852,7 +916,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     setEditingMatchId(null);
     onRefresh();
-    showToast('¡Partido guardado y puntos sumados a la Tabla General y a la Quiniela con éxito!', 'success');
+    showToast('¡Partido guardado y puntos sumados a la Tabla de Posiciones por Categoría y a la Quiniela con éxito!', 'success');
   };
 
   const handleSavePlayer = async (e: React.FormEvent) => {
@@ -982,6 +1046,67 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setShowConfigModal(false);
     onRefresh();
     showToast('Configuración institucional y logo oficial guardados con éxito', 'success');
+  };
+
+  const handleSaveClientWork = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workForm.title.trim() || !workForm.clientName.trim() || !workForm.imageUrl.trim()) {
+      showToast('Por favor completa el título, cliente y la URL de la foto 4:5', 'error');
+      return;
+    }
+    setIsSavingWork(true);
+    try {
+      const item: ClientWorkItem = {
+        id: editingWorkId || `cw-${Date.now()}`,
+        title: workForm.title.trim(),
+        clientName: workForm.clientName.trim(),
+        category: workForm.category,
+        imageUrl: workForm.imageUrl.trim(),
+        yearOrDate: workForm.yearOrDate.trim() || '2026',
+        description: workForm.description.trim() || 'Confección oficial EMILIATEX',
+        technique: workForm.technique.trim() || 'Sublimación Digital HD • Dry-Fit',
+        tags: workForm.tags ? workForm.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        featured: workForm.featured
+      };
+      const updated = await saveClientWork(item);
+      setClientWorksList(updated);
+      setEditingWorkId(null);
+      setWorkForm({
+        title: '',
+        clientName: '',
+        category: 'futbol',
+        imageUrl: '',
+        yearOrDate: 'Temporada 2026',
+        description: '',
+        technique: 'Sublimación Digital HD • Dry-Fit Microperforado',
+        tags: 'Sublimación, Cuello V, Calidad Exportación',
+        featured: false
+      });
+      showToast(editingWorkId ? 'Trabajo actualizado con éxito' : 'Foto 4:5 agregada a la Galería de Clientes con éxito', 'success');
+      onRefresh();
+    } catch (err: any) {
+      showToast(`Error al guardar trabajo: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setIsSavingWork(false);
+    }
+  };
+
+  const handleEditClientWork = (item: ClientWorkItem) => {
+    setEditingWorkId(item.id);
+    setWorkForm({
+      title: item.title,
+      clientName: item.clientName,
+      category: item.category,
+      imageUrl: item.imageUrl,
+      yearOrDate: item.yearOrDate || '2026',
+      description: item.description,
+      technique: item.technique || '',
+      tags: (item.tags || []).join(', '),
+      featured: item.featured || false
+    });
+    if (workFormRef.current) {
+      workFormRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   const filteredOrders = orders.filter(o => {
@@ -1303,12 +1428,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </p>
               </div>
               <span className="text-xs text-amber-300 font-mono neu-pressed px-3.5 py-1.5 rounded-full self-start sm:self-auto border border-[#D4AF37]/30 font-bold">
-                6 Módulos Nativos
+                7 Módulos Nativos
               </span>
             </div>
 
-            {/* 6 Big Native APK Action Buttons with High-Impact Embossed Icons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-5">
+            {/* 7 Big Native APK Action Buttons with High-Impact Embossed Icons */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-4 sm:gap-5">
               
               {/* Card 1: Catálogo */}
               <div 
@@ -1460,6 +1585,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </div>
 
+              {/* Card 7: Galería de Clientes (Formato 4:5) */}
+              <div 
+                onClick={() => handleSelectSection('manage_gallery')}
+                className="group relative flex flex-col justify-between p-6 rounded-3xl neu-card-gold border-amber-400/40 hover:border-amber-400 transition-all cursor-pointer active:scale-[0.97] shadow-xl hover:shadow-[0_10px_30px_rgba(212,175,55,0.25)]"
+              >
+                <div>
+                  {/* Big Embossed APK Icon Bubble */}
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl mx-auto flex items-center justify-center mb-4 neu-pressed text-[#D4AF37] group-hover:scale-105 group-hover:bg-[#D4AF37] group-hover:text-black transition-all shadow-inner border border-[#D4AF37]/40">
+                    <Camera className="w-9 h-9 sm:w-11 sm:h-11" />
+                  </div>
+                  
+                  <div className="text-center">
+                    <h3 className="font-black text-lg text-white tracking-wide font-cinzel group-hover:text-amber-300 transition-colors">
+                      Galería
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                      Fotos reales de clientes y equipaciones oficiales.
+                    </p>
+                    <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-amber-300 font-bold border border-[#D4AF37]/30">
+                      {clientWorksList.length} fotos
+                    </span>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
             {/* Firebase Storage Status & Cloud Directories Control */}
@@ -1588,6 +1738,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     {activeSection === 'add_academy' && 'Gestión de Academias'}
                     {activeSection === 'view_orders' && 'Bandeja de Pedidos'}
                     {activeSection === 'view_quinielas' && 'Control de Quiniela'}
+                    {activeSection === 'manage_gallery' && 'Galería de Clientes'}
                   </span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-white font-cinzel">
@@ -1597,6 +1748,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   {activeSection === 'add_academy' && 'Inscripción de Academias y Categorías'}
                   {activeSection === 'view_orders' && 'Bandeja de Pedidos WhatsApp'}
                   {activeSection === 'view_quinielas' && 'Participantes & Clasificación Quiniela C.A'}
+                  {activeSection === 'manage_gallery' && 'Galería de Clientes & Lookbook'}
                 </h2>
               </div>
             </div>
@@ -1611,8 +1763,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <span>Nueva Ventana</span>
               </button>
 
-              {/* Module Switcher Tabs - Mobile scrollable in neu-pressed */}
-              <div className="flex items-center gap-1 p-1.5 rounded-2xl neu-pressed overflow-x-auto no-scrollbar scroll-smooth w-full sm:w-auto">
+              {/* Module Switcher Tabs - Grouped on mobile and desktop without scroll */}
+              <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl neu-pressed w-full sm:w-auto">
                 <button
                   onClick={() => handleSelectSection('add_product')}
                   className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
@@ -1660,6 +1812,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   }`}
                 >
                   Quiniela ({quinielas.length})
+                </button>
+                <button
+                  onClick={() => handleSelectSection('manage_gallery')}
+                  className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                    activeSection === 'manage_gallery' ? 'neu-btn-gold text-black shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Galería ({clientWorksList.length})
                 </button>
               </div>
             </div>
@@ -2357,7 +2517,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               )}
             </div>
 
-            {/* Panel de Control Oficial de Jornadas y Suma de Puntos a la Tabla General */}
+            {/* Panel de Control Oficial de Jornadas y Suma de Puntos a las Tablas por Categoría */}
             {matches.length > 0 && (
               <div className="rounded-2xl neu-card-gold p-4 sm:p-5 border border-amber-400/40 bg-gradient-to-r from-[#1a1b26] via-[#241f12] to-[#1a1b26] space-y-3 shadow-lg">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -2372,7 +2532,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-300">
-                      Finaliza la jornada para sumar automáticamente todos los marcadores oficiales a la <strong className="text-amber-300">Tabla General de Posiciones</strong> (3 pts PG / 1 pt PE) y a la <strong className="text-amber-300">Quiniela Oficial</strong> (+5 exacto / +2 acierto).
+                      Finaliza la jornada para sumar automáticamente todos los marcadores oficiales a las <strong className="text-amber-300">Tablas de Posiciones por Categoría</strong> (3 pts PG / 1 pt PE) y a la <strong className="text-amber-300">Quiniela Oficial</strong> (+5 exacto / +2 acierto).
                     </p>
                   </div>
 
@@ -2385,7 +2545,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         handleFinishJornada(targetJ);
                       }}
                       className="px-4 py-2.5 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
-                      title="Marca todos los partidos de esta jornada como finalizados y suma puntos a la tabla y a la quiniela"
+                      title="Marca todos los partidos de esta jornada como finalizados y suma puntos a las tablas y a la quiniela"
                     >
                       <CheckCircle2 className="w-4 h-4 text-black" />
                       <span>{isFinishingJornada ? 'Finalizando...' : `Finalizar ${adminMatchJornadaFilter === 'all' ? (availableMatchJornadas[0] || 'Jornada 1') : adminMatchJornadaFilter} y Sumar Puntos`}</span>
@@ -2396,7 +2556,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       disabled={isRecalculatingQuinielas}
                       onClick={handleRecalculatePoints}
                       className="px-3.5 py-2.5 rounded-xl neu-btn-dark text-amber-300 hover:text-white text-xs font-bold flex items-center gap-1.5 border border-amber-400/30 active:scale-95 cursor-pointer disabled:opacity-50"
-                      title="Recalcula desde cero todos los puntos de la tabla general y quiniela según marcadores"
+                      title="Recalcula desde cero todos los puntos de las tablas por categoría y quiniela según marcadores"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isRecalculatingQuinielas ? 'animate-spin text-amber-400' : ''}`} />
                       <span>{isRecalculatingQuinielas ? 'Recalculando...' : 'Recalcular Tabla y Quiniela'}</span>
@@ -2591,7 +2751,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <button
                         onClick={() => handleQuickFinishMatch(m)}
                         className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow"
-                        title="Marcar como Finalizado y sumar puntos de inmediato a la Tabla General y Quiniela"
+                        title="Marcar como Finalizado y sumar puntos de inmediato a las Tablas por Categoría y Quiniela"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                         <span>Finalizar</span>
@@ -2993,7 +3153,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       {playerCategoryFilter === 'all' ? 'Todas las Categorías' : playerCategoryFilter}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-nowrap sm:flex-wrap">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setPlayerCategoryFilter('all')}
@@ -3038,7 +3198,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         : (academies.find(a => a.id === playerAcademyFilter)?.name || playerAcademyFilter)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-nowrap sm:flex-wrap">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setPlayerAcademyFilter('all')}
@@ -4455,6 +4615,390 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* SECTION 7: GESTIÓN DE GALERÍA DE CLIENTES (FORMATO 4:5) */}
+      {activeSection === 'manage_gallery' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          
+          {/* Form Card */}
+          <div ref={workFormRef} className="rounded-3xl neu-card-gold p-6 sm:p-8 space-y-6 shadow-2xl border border-[#D4AF37]/40">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0">
+                  <Camera className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-bold text-white font-cinzel">
+                    {editingWorkId ? 'Editar Fotografía de Galería' : 'Publicar Nuevo Trabajo de Cliente'}
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    Sube fotografías verticales en proporción 4:5 de uniformes e indumentarias confeccionadas para clientes reales.
+                  </p>
+                </div>
+              </div>
+
+              {editingWorkId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingWorkId(null);
+                    setWorkForm({
+                      title: '',
+                      clientName: '',
+                      category: 'futbol',
+                      imageUrl: '',
+                      yearOrDate: 'Temporada 2026',
+                      description: '',
+                      technique: 'Sublimación Digital HD • Dry-Fit Microperforado',
+                      tags: 'Sublimación, Cuello V, Calidad Exportación',
+                      featured: false
+                    });
+                  }}
+                  className="px-4 py-2 rounded-xl neu-pressed text-slate-300 hover:text-white text-xs font-semibold self-start sm:self-auto cursor-pointer"
+                >
+                  Cancelar Edición
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveClientWork} className="space-y-5">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Inputs Columns (2 cols) */}
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-semibold text-slate-300">
+                        Título de la Equipación / Prenda <span className="text-amber-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={workForm.title}
+                        onChange={e => setWorkForm({ ...workForm, title: e.target.value })}
+                        placeholder="Ej: Indumentaria Titular Oro & Carbón Pro"
+                        className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-semibold text-slate-300">
+                        Nombre del Cliente / Club / Academia <span className="text-amber-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={workForm.clientName}
+                        onChange={e => setWorkForm({ ...workForm, clientName: e.target.value })}
+                        placeholder="Ej: Deportivo Táchira Sub-15 / Alianza FC"
+                        className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-semibold text-slate-300">
+                        Categoría de Confección
+                      </label>
+                      <select
+                        value={workForm.category}
+                        onChange={e => setWorkForm({ ...workForm, category: e.target.value as ClientWorkCategory })}
+                        className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none bg-[#141622]"
+                      >
+                        <option value="futbol">Fútbol & Competición</option>
+                        <option value="academias">Academias & Torneo</option>
+                        <option value="baloncesto">Baloncesto & Voleibol</option>
+                        <option value="polos">Polos & Presentación</option>
+                        <option value="chaquetas">Chaquetas & Sudaderas</option>
+                        <option value="corporativo">Línea Corporativa</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-semibold text-slate-300">
+                        Temporada / Año / Fecha
+                      </label>
+                      <input
+                        type="text"
+                        value={workForm.yearOrDate}
+                        onChange={e => setWorkForm({ ...workForm, yearOrDate: e.target.value })}
+                        placeholder="Ej: Temporada 2026 / Agosto 2026"
+                        className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      URL de la Fotografía (Formato 4:5 recomendado) <span className="text-amber-400">*</span>
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      value={workForm.imageUrl}
+                      onChange={e => setWorkForm({ ...workForm, imageUrl: e.target.value })}
+                      placeholder="https://images.unsplash.com/... o enlace de Firebase Storage"
+                      className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      Puedes pegar cualquier URL web o enlace de Firebase Storage. El visor aplicará automáticamente la proporción exacta 4:5.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Técnica / Especificación Textil
+                    </label>
+                    <input
+                      type="text"
+                      value={workForm.technique}
+                      onChange={e => setWorkForm({ ...workForm, technique: e.target.value })}
+                      placeholder="Ej: Sublimación Digital HD • Dry-Fit UV50+ • Costuras 5 Hilos"
+                      className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Etiquetas / Tags (separados por coma)
+                    </label>
+                    <input
+                      type="text"
+                      value={workForm.tags}
+                      onChange={e => setWorkForm({ ...workForm, tags: e.target.value })}
+                      placeholder="Sublimado Completo, Cuello V, Escudo HD, Edición Especial"
+                      className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Descripción del Trabajo Realizado
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={workForm.description}
+                      onChange={e => setWorkForm({ ...workForm, description: e.target.value })}
+                      placeholder="Detalles sobre el diseño, colores, telas utilizadas y entrega especial para el cliente..."
+                      className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="workFeaturedCheck"
+                      checked={workForm.featured}
+                      onChange={e => setWorkForm({ ...workForm, featured: e.target.checked })}
+                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 bg-black/40 border-white/20"
+                    />
+                    <label htmlFor="workFeaturedCheck" className="text-xs text-slate-200 font-semibold cursor-pointer select-none">
+                      Destacar este trabajo en la portada principal de la Galería y en el Inicio
+                    </label>
+                  </div>
+                </div>
+
+                {/* 4:5 Live Interactive Card Preview */}
+                <div className="space-y-3">
+                  <label className="block text-xs font-black uppercase tracking-wider text-amber-300 font-cinzel">
+                    Vista Previa en Vivo (Formato 4:5)
+                  </label>
+
+                  <div className="rounded-3xl neu-card overflow-hidden border border-[#D4AF37]/50 shadow-xl flex flex-col max-w-xs mx-auto">
+                    <div className="relative w-full aspect-[4/5] bg-black/70 overflow-hidden flex items-center justify-center">
+                      {workForm.imageUrl ? (
+                        <img
+                          src={workForm.imageUrl}
+                          alt={workForm.title || 'Vista previa'}
+                          className="w-full h-full object-cover object-center"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=1000&fit=crop&q=85';
+                          }}
+                        />
+                      ) : (
+                        <div className="text-center p-6 space-y-2 text-slate-500">
+                          <Camera className="w-10 h-10 mx-auto text-slate-600" />
+                          <p className="text-xs font-semibold">Ingresa una URL para ver la vista previa 4:5</p>
+                        </div>
+                      )}
+
+                      <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1 pointer-events-none">
+                        <span className="px-2 py-0.5 rounded-lg bg-black/80 text-amber-300 text-[9px] font-mono font-bold uppercase truncate max-w-[150px]">
+                          {workForm.clientName || 'Cliente'}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md neu-btn-gold text-black text-[9px] font-mono font-black">
+                          4:5
+                        </span>
+                      </div>
+
+                      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#090A0F] to-transparent pointer-events-none" />
+                    </div>
+
+                    <div className="p-3.5 space-y-1 bg-[#11131c]">
+                      <h4 className="text-xs font-black text-white font-cinzel truncate">
+                        {workForm.title || 'Título de la prenda'}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 line-clamp-1">
+                        {workForm.description || 'Descripción del trabajo confeccionado...'}
+                      </p>
+                      <div className="pt-1.5 border-t border-white/5 flex items-center justify-between text-[9px] text-amber-400 font-mono">
+                        <span className="truncate">{workForm.technique || 'Sublimación HD'}</span>
+                        <span className="text-slate-400 shrink-0">{workForm.yearOrDate || '2026'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Form Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="submit"
+                  disabled={isSavingWork}
+                  className="px-6 py-3 rounded-2xl neu-btn-gold text-black font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Camera className="w-4 h-4 text-black" />
+                  <span>{isSavingWork ? 'Guardando en Galería...' : (editingWorkId ? 'Actualizar Trabajo' : 'Publicar en Galería')}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* List of Client Works */}
+          <div className="rounded-3xl neu-card p-6 sm:p-8 space-y-6 shadow-xl border border-white/5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-white font-cinzel flex items-center gap-2">
+                  <span>Trabajos Publicados en la Galería</span>
+                  <span className="px-2.5 py-0.5 rounded-full neu-pressed text-amber-300 font-mono text-xs font-bold">
+                    {clientWorksList.length}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Visualiza, edita o elimina trabajos del catálogo fotográfico oficial en formato vertical 4:5.
+                </p>
+              </div>
+
+              {/* Search & Category Filter */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={clientWorkSearch}
+                    onChange={e => setClientWorkSearch(e.target.value)}
+                    placeholder="Buscar por cliente o título..."
+                    className="pl-9 pr-3 py-2 rounded-xl neu-pressed text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#D4AF37] border border-white/5 w-full sm:w-56"
+                  />
+                </div>
+
+                <select
+                  value={clientWorkCategoryFilter}
+                  onChange={e => setClientWorkCategoryFilter(e.target.value as any)}
+                  className="px-3 py-2 rounded-xl neu-pressed text-xs text-white focus:outline-none focus:border-[#D4AF37] bg-[#141622]"
+                >
+                  <option value="all">Todas las Categorías</option>
+                  <option value="futbol">Fútbol & Competición</option>
+                  <option value="academias">Academias & Torneo</option>
+                  <option value="baloncesto">Baloncesto & Voleibol</option>
+                  <option value="polos">Polos & Presentación</option>
+                  <option value="chaquetas">Chaquetas & Sudaderas</option>
+                  <option value="corporativo">Línea Corporativa</option>
+                </select>
+              </div>
+            </div>
+
+            {filteredClientWorks.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <Camera className="w-12 h-12 text-slate-600 mx-auto" />
+                <h4 className="text-sm font-bold text-white font-cinzel">No hay fotos que coincidan con los filtros</h4>
+                <p className="text-xs text-slate-400">Prueba con otra categoría o término de búsqueda.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+                {filteredClientWorks.map((item) => (
+                  <div
+                    key={item.id}
+                    className="group rounded-3xl neu-card overflow-hidden border border-white/5 hover:border-[#D4AF37]/50 transition-all flex flex-col justify-between shadow-lg"
+                  >
+                    {/* 4:5 image container */}
+                    <div className="relative w-full aspect-[4/5] bg-black/60 overflow-hidden">
+                      <img
+                        src={item.imageUrl}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        loading="lazy"
+                      />
+                      <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1">
+                        <span className="px-2 py-0.5 rounded-lg bg-black/80 text-amber-300 text-[9px] font-mono font-bold uppercase truncate max-w-[160px]">
+                          {item.clientName}
+                        </span>
+                        {item.featured && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-400 text-black text-[9px] font-black uppercase font-mono">
+                            ★
+                          </span>
+                        )}
+                      </div>
+                      <span className="absolute bottom-2.5 right-2.5 px-1.5 py-0.5 rounded bg-black/70 text-slate-300 text-[8px] font-mono">
+                        4:5
+                      </span>
+                    </div>
+
+                    <div className="p-4 space-y-2 flex-1 flex flex-col justify-between bg-[#11131c]">
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold text-white font-cinzel line-clamp-1">
+                          {item.title}
+                        </h4>
+                        <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5">
+                          {item.description}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5 space-y-2">
+                        <p className="text-[10px] text-amber-400/90 font-mono truncate">
+                          {item.technique || 'Sublimación Digital'}
+                        </p>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[10px] text-slate-500 font-mono">{item.yearOrDate || '2026'}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleEditClientWork(item)}
+                              className="p-1.5 rounded-lg neu-pressed text-amber-300 hover:text-white transition-colors cursor-pointer"
+                              title="Editar este trabajo"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmDeleteModal({
+                                  type: 'client_work',
+                                  id: item.id,
+                                  name: item.title,
+                                  extraInfo: `Cliente: ${item.clientName} • Categoría: ${item.category}`
+                                });
+                              }}
+                              className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/25 border border-red-500/20 transition-colors cursor-pointer"
+                              title="Eliminar este trabajo de la galería"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

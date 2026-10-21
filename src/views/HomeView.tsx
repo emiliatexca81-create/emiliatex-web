@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Product, TournamentMatch } from '../types';
+import { Product, TournamentMatch, ClientWorkItem } from '../types';
 import { NavPage } from '../components/Navbar';
-import { MessageCircle, Trophy, Shirt, ArrowRight, ShieldCheck, Sparkles, Flame, Clock, MapPin, CheckCircle, ChevronRight, Eye } from 'lucide-react';
+import { MessageCircle, Trophy, Shirt, ArrowRight, ShieldCheck, Sparkles, Flame, Clock, MapPin, CheckCircle, ChevronRight, Eye, Camera, Tag } from 'lucide-react';
 import { formatWhatsAppLink, getSettings } from '../services/storage';
 
 interface HomeViewProps {
   products: Product[];
   matches: TournamentMatch[];
+  clientWorks?: ClientWorkItem[];
   onNavigate: (page: NavPage) => void;
   onSelectProduct: (product: Product) => void;
   onSelectMatch?: (match: TournamentMatch) => void;
@@ -16,6 +17,7 @@ interface HomeViewProps {
 export const HomeView: React.FC<HomeViewProps> = ({
   products,
   matches,
+  clientWorks = [],
   onNavigate,
   onSelectProduct,
   onSelectMatch,
@@ -23,6 +25,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const settings = getSettings();
   const upcomingMatches = matches.filter(m => m.status === 'upcoming').slice(0, 2);
   const featuredProducts = products.filter(p => p.isFeatured).slice(0, 4);
+  const showcaseWorks = (clientWorks.length > 0 ? clientWorks : []).slice(0, 4);
 
   const handleGeneralWhatsApp = () => {
     const url = formatWhatsAppLink(
@@ -341,6 +344,93 @@ export const HomeView: React.FC<HomeViewProps> = ({
           ))}
         </div>
       </section>
+
+      {/* 3.5 CLIENT GALLERY LOOKBOOK SHOWCASE (STRICT 4:5 ASPECT RATIO) */}
+      {showcaseWorks.length > 0 && (
+        <section className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4 border-b border-white/5 pb-4">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full neu-pressed text-amber-400 text-[11px] font-bold uppercase tracking-wider mb-2">
+                <Camera className="w-3.5 h-3.5" />
+                <span>LOOKBOOK OFICIAL • GALERÍA</span>
+              </div>
+              <h2 className="text-2xl sm:text-4xl font-black font-cinzel text-white">
+                Galería de Clientes & Trabajos Reales
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                Explora las equipaciones, uniformes de academias y dotaciones corporativas con acabados de alta fidelidad.
+              </p>
+            </div>
+            <button
+              onClick={() => onNavigate('gallery')}
+              className="flex items-center gap-2 px-5 py-3 rounded-2xl neu-btn-gold text-black font-extrabold text-xs uppercase tracking-wider cursor-pointer active:scale-95 transition-transform"
+            >
+              <span>Ver Galería</span>
+              <ArrowRight className="w-4 h-4 text-black" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {showcaseWorks.map((work, idx) => (
+              <motion.div
+                key={work.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: idx * 0.07 }}
+                onClick={() => onNavigate('gallery')}
+                className="group relative rounded-3xl neu-card overflow-hidden border border-white/10 hover:border-[#D4AF37]/60 transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5 flex flex-col"
+              >
+                {/* 4:5 Image Container */}
+                <div className="relative w-full aspect-[4/5] overflow-hidden bg-black/60">
+                  <img
+                    src={work.imageUrl}
+                    alt={work.title}
+                    className="w-full h-full object-cover object-center group-hover:scale-108 transition-transform duration-700 ease-out"
+                    loading="lazy"
+                  />
+                  
+                  {/* Top Badge */}
+                  <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none z-10">
+                    <span className="px-2.5 py-1 rounded-xl bg-black/75 backdrop-blur-md text-amber-300 border border-amber-400/30 text-[9px] font-mono font-bold uppercase tracking-wider">
+                      {work.clientName}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-lg bg-black/60 text-slate-300 text-[9px] font-mono font-bold">
+                      {work.category === 'corporate' ? 'Corp' : 'Élite'}
+                    </span>
+                  </div>
+
+                  {/* Hover Quick Action */}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4 z-10">
+                    <span className="px-3.5 py-2 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider shadow-2xl flex items-center gap-1.5 transform scale-90 group-hover:scale-100 transition-transform">
+                      <Eye className="w-3.5 h-3.5 text-black" />
+                      <span>Ver en Galería</span>
+                    </span>
+                  </div>
+
+                  {/* Bottom Vignette */}
+                  <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#090A0F] via-[#090A0F]/80 to-transparent pointer-events-none" />
+                </div>
+
+                {/* Info Card */}
+                <div className="p-4 space-y-1.5 flex-1 flex flex-col justify-between bg-[#11131c]">
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black font-cinzel text-white group-hover:text-amber-300 transition-colors line-clamp-1">
+                      {work.title}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 line-clamp-2 mt-1 leading-relaxed">
+                      {work.description}
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                    <span className="text-amber-400 truncate">{work.technique || 'Sublimación HD'}</span>
+                    <span className="text-amber-400/80 font-bold shrink-0">Oficial</span>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 4. MANUFACTURING CAPABILITIES & PROCESS - Neumorphic Cards */}
       <section className="rounded-3xl neu-card-gold p-6 sm:p-12 space-y-8">

@@ -133,33 +133,30 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
   };
 
-  // Render a standings table for a specific category or general
-  const renderCategoryStandingsTable = (category: TournamentCategory | 'all') => {
+  // Render a standings table for a specific category championship
+  const renderCategoryStandingsTable = (category: TournamentCategory) => {
     const list = getStandingsForCategory(category);
-    const isGeneral = category === 'all';
 
     return (
-      <div key={category} className="rounded-3xl neu-card overflow-hidden shadow-2xl space-y-0">
+      <div key={category} className="rounded-3xl neu-card overflow-hidden shadow-2xl space-y-0 border border-white/5">
         {/* Table Header with Category Banner */}
         <div className="px-5 sm:px-6 py-4 border-b border-white/10 bg-gradient-to-r from-[#171926] via-[#12141f] to-[#171926] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className={`px-3 py-1 rounded-xl text-black font-black text-xs tracking-wider uppercase ${
-              isGeneral ? 'bg-gradient-to-r from-amber-400 to-yellow-300 shadow-md' : 'neu-btn-gold'
-            }`}>
-              {isGeneral ? 'Tabla General' : category}
+            <span className="px-3.5 py-1.5 rounded-xl text-black font-black text-xs tracking-wider uppercase neu-btn-gold shadow-md">
+              {category}
             </span>
             <div>
               <h3 className="text-sm sm:text-base font-black font-cinzel text-white flex items-center gap-2">
-                <span>{isGeneral ? 'Tabla General de Posiciones (Torneo Completo)' : `Tabla Oficial de Posiciones - ${category}`}</span>
+                <span>Campeonato Oficial • Categoría {category}</span>
               </h3>
               <p className="text-[11px] text-slate-400">
-                {list.length} {list.length === 1 ? 'club registrado' : 'clubes en competencia'} {isGeneral ? 'en la tabla acumulada' : `en Categoría ${category}`} • Puntos calculados en tiempo real
+                {list.length} {list.length === 1 ? 'club registrado' : 'clubes en competencia'} en Categoría {category} • Puntos calculados en tiempo real
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] font-mono text-amber-300 hud-badge px-3 py-1 rounded-full uppercase tracking-wider">
-              Sistema Puntos (PG×3 + PE)
+              PG×3 • PE×1
             </span>
             <button
               type="button"
@@ -186,7 +183,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         {list.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs space-y-2">
             <Shield className="w-8 h-8 text-slate-600 mx-auto" />
-            <p className="font-semibold text-white">No hay academias registradas aún {isGeneral ? 'en el torneo' : `en ${category}`}</p>
+            <p className="font-semibold text-white">No hay clubes registrados aún en Categoría {category}</p>
             <p className="text-slate-500">Inscribe o asigna esta categoría a las academias desde el Panel de Control Administrativo.</p>
           </div>
         ) : (
@@ -275,7 +272,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         <div className="p-3.5 bg-black/40 border-t border-white/5 flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-[#D4AF37]" />
-            1° y 2° Lugar clasifican a rondas finales {isGeneral ? 'del Torneo' : `de ${category}`}
+            1° y 2° Lugar clasifican a rondas finales de {category}
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
@@ -480,67 +477,67 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         </div>
       )}
 
-      {/* Primary Sub Navigation Tabs - Neumorphic Pill Dock */}
-      <div className="flex items-center gap-2 border-b border-white/10 overflow-x-auto no-scrollbar scroll-smooth -mx-3 px-3 sm:mx-0 sm:px-0 pb-2">
+      {/* Primary Sub Navigation Tabs - Grouped Responsive Dock */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-wrap items-center gap-2 border-b border-white/10 pb-3">
         {onNavigate && (
           <button
             onClick={() => onNavigate('quiniela')}
-            className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black neu-btn-gold text-black shadow-md cursor-pointer transition-transform hover:scale-105"
+            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-2xl text-xs sm:text-sm font-black neu-btn-gold text-black shadow-md cursor-pointer transition-transform hover:scale-105 col-span-2 sm:col-span-1"
           >
             <Trophy className="w-4 h-4 text-black" />
-            <span>Quiniela EMILIATEX C.A</span>
+            <span>Quiniela C.A</span>
             <span className="w-2 h-2 rounded-full bg-black animate-ping" />
           </button>
         )}
 
         <button
           onClick={() => setActiveTab('standings')}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeTab === 'standings'
-              ? 'neu-btn-gold text-black'
+              ? 'neu-btn-gold text-black font-extrabold shadow-md'
               : 'neu-btn-dark text-slate-300 hover:text-white'
           }`}
         >
-          <Trophy className="w-4 h-4 text-amber-400" />
+          <Trophy className={`w-4 h-4 ${activeTab === 'standings' ? 'text-black' : 'text-amber-400'}`} />
           <span className="sm:hidden">Posiciones</span>
-          <span className="hidden sm:inline">Tablas de Posiciones por Categoría</span>
+          <span className="hidden sm:inline">Tablas de Posiciones</span>
         </button>
 
         <button
           onClick={() => setActiveTab('matches')}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeTab === 'matches'
-              ? 'neu-btn-gold text-black'
+              ? 'neu-btn-gold text-black font-extrabold shadow-md'
               : 'neu-btn-dark text-slate-300 hover:text-white'
           }`}
         >
-          <Calendar className="w-4 h-4 text-amber-400" />
+          <Calendar className={`w-4 h-4 ${activeTab === 'matches' ? 'text-black' : 'text-amber-400'}`} />
           <span className="sm:hidden">Partidos ({matches.length})</span>
           <span className="hidden sm:inline">Partidos & Fixture ({matches.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('scorers')}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeTab === 'scorers'
-              ? 'neu-btn-gold text-black'
+              ? 'neu-btn-gold text-black font-extrabold shadow-md'
               : 'neu-btn-dark text-slate-300 hover:text-white'
           }`}
         >
-          <Flame className="w-4 h-4 text-amber-400" />
+          <Flame className={`w-4 h-4 ${activeTab === 'scorers' ? 'text-black' : 'text-amber-400'}`} />
           <span className="sm:hidden">Goleadores ({players.length})</span>
           <span className="hidden sm:inline">Goleadores & Figuras ({players.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('academies')}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeTab === 'academies'
-              ? 'neu-btn-gold text-black'
+              ? 'neu-btn-gold text-black font-extrabold shadow-md'
               : 'neu-btn-dark text-slate-300 hover:text-white'
           }`}
         >
-          <Shield className="w-4 h-4 text-amber-400" />
+          <Shield className={`w-4 h-4 ${activeTab === 'academies' ? 'text-black' : 'text-amber-400'}`} />
           <span className="sm:hidden">Clubes ({academies.length})</span>
           <span className="hidden sm:inline">Academias ({academies.length})</span>
         </button>
@@ -557,13 +554,13 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-black font-cinzel text-white flex items-center gap-2">
-                  <span>Tabla de Posiciones Oficial</span>
+                  <span>Tablas de Posiciones por Categoría</span>
                   <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold">
                     En Vivo
                   </span>
                 </h3>
                 <p className="text-xs text-slate-300">
-                  {matches.filter(m => m.status === 'finished').length} partidos finalizados registrados • Puntos y goles computados automáticamente
+                  Cada categoría juega su propio campeonato independiente • Puntos oficiales y clasificaciones calculados en tiempo real
                 </p>
               </div>
             </div>
@@ -579,19 +576,19 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           <div className="p-3 sm:p-4 rounded-2xl neu-card flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-slate-300">
               <Filter className="w-4 h-4 text-[#D4AF37]" />
-              <span className="font-extrabold text-white uppercase text-[11px] tracking-wider">Ver Clasificación:</span>
+              <span className="font-extrabold text-white uppercase text-[11px] tracking-wider">Ver Campeonato por Categoría:</span>
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth -mx-2 px-2 sm:mx-0 sm:px-0 sm:flex-wrap">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <button
                 onClick={() => setStandingsCategory('all')}
                 className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   standingsCategory === 'all'
-                    ? 'neu-btn-gold text-black'
+                    ? 'neu-btn-gold text-black shadow-md'
                     : 'neu-pressed text-slate-400 hover:text-white'
                 }`}
               >
-                Tabla General Acumulada
+                Todas las Categorías (Desglose)
               </button>
 
               {TOURNAMENT_CATEGORIES.map(cat => (
@@ -600,7 +597,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                   onClick={() => setStandingsCategory(cat)}
                   className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     standingsCategory === cat
-                      ? 'neu-btn-gold text-black'
+                      ? 'neu-btn-gold text-black shadow-md'
                       : 'neu-pressed text-slate-400 hover:text-white'
                   }`}
                 >
@@ -610,25 +607,10 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
             </div>
           </div>
 
-          {/* Render Standings: Either All Category Tables stacked with General at top, or single chosen Category */}
+          {/* Render Standings: Pure Category Championships Breakdown (No general mixed table) */}
           {standingsCategory === 'all' ? (
             <div className="space-y-8">
-              {/* 1. TABLA GENERAL ACUMULADA DEL TORNEO */}
-              {renderCategoryStandingsTable('all')}
-
-              {/* 2. DESGLOSE POR CATEGORÍAS */}
-              <div className="pt-6 border-t border-white/10 space-y-6">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-amber-400" />
-                    <span>Desglose por Categorías Formativas</span>
-                  </h4>
-                  <span className="text-xs text-slate-400 font-mono">Sub-11 a Libre</span>
-                </div>
-                <div className="space-y-8">
-                  {TOURNAMENT_CATEGORIES.map(cat => renderCategoryStandingsTable(cat))}
-                </div>
-              </div>
+              {TOURNAMENT_CATEGORIES.map(cat => renderCategoryStandingsTable(cat))}
             </div>
           ) : (
             <div>
@@ -745,7 +727,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth pb-1 pt-1 -mx-2 px-2 sm:mx-0 sm:px-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pb-1 pt-1">
                 <button
                   type="button"
                   onClick={() => setMatchJornadaFilter('all')}

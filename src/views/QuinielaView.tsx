@@ -624,7 +624,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
               </div>
 
               {/* Jornada Pill Bar */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pb-1 pt-1">
                 <button
                   type="button"
                   onClick={() => setSelectedJornada('all')}

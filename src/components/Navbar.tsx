@@ -1,36 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { EmiliatexLogo } from './EmiliatexLogo';
-import { MessageCircle, Menu, X, Shield, Trophy, Shirt, Home, PhoneCall, Award } from 'lucide-react';
+import { MessageCircle, Menu, X, Shield, Trophy, Shirt, Home, PhoneCall, Award, Camera } from 'lucide-react';
 import { formatWhatsAppLink, getSettings, getMatches } from '../services/storage';
 
-export type NavPage = 'home' | 'catalog' | 'tournament' | 'quiniela' | 'admin';
+import { Product, AppSettings } from '../types';
+
+export type NavPage = 'home' | 'catalog' | 'gallery' | 'tournament' | 'quiniela' | 'admin';
 
 interface NavbarProps {
   currentPage: NavPage;
   onNavigate: (page: NavPage) => void;
+  hasLiveMatch?: boolean;
+  settings?: AppSettings;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
+export const Navbar: React.FC<NavbarProps> = ({ 
+  currentPage, 
+  onNavigate,
+  hasLiveMatch = false,
+  settings: propSettings
+}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [hasLiveMatch, setHasLiveMatch] = useState(false);
-  const [settings, setSettings] = useState(getSettings());
-
-  useEffect(() => {
-    const checkLive = () => {
-      const matches = getMatches();
-      setHasLiveMatch(matches.some(m => m.status === 'live'));
-      setSettings(getSettings());
-    };
-    checkLive();
-
-    const handler = () => checkLive();
-    window.addEventListener('emiliatex_storage_update', handler);
-    return () => window.removeEventListener('emiliatex_storage_update', handler);
-  }, []);
+  const settings = propSettings || getSettings();
 
   const navItems: { id: NavPage; label: string; icon: any; isSpecial?: boolean; badge?: string }[] = [
     { id: 'home', label: 'Inicio', icon: Home },
     { id: 'catalog', label: 'Catálogo', icon: Shirt },
+    { id: 'gallery', label: 'Galería', icon: Camera },
     { id: 'tournament', label: 'Torneo', icon: Trophy },
     { id: 'quiniela', label: 'Quiniela C.A', icon: Award, badge: 'PUNTOS' },
     { id: 'admin', label: 'Panel Admin', icon: Shield, isSpecial: true },

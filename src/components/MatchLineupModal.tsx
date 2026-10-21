@@ -400,62 +400,62 @@ export const MatchLineupModal: React.FC<MatchLineupModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-white/10 bg-[#090b12] px-4 sm:px-6 gap-2 overflow-x-auto shrink-0 scrollbar-none">
+        <div className="grid grid-cols-2 xs:grid-cols-4 border-b border-white/10 bg-[#090b12] px-2 sm:px-6 gap-1 sm:gap-2">
           <button
             onClick={() => setActiveTab('home')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            className={`py-2.5 sm:py-3 px-2 sm:px-4 text-[11px] sm:text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'home'
                 ? 'border-[#D4AF37] text-amber-300 bg-white/5'
                 : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Shield className="w-4 h-4 text-amber-400" />
-            <span>Local: {match.homeAcademyName}</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-white/10 text-[10px] font-mono">
+            <Shield className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate">Local</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-white/10 text-[10px] font-mono shrink-0">
               {homeStarters.length + homeSubstitutes.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('away')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            className={`py-2.5 sm:py-3 px-2 sm:px-4 text-[11px] sm:text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'away'
                 ? 'border-[#D4AF37] text-amber-300 bg-white/5'
                 : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Shield className="w-4 h-4 text-blue-400" />
-            <span>Visitante: {match.awayAcademyName}</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-white/10 text-[10px] font-mono">
+            <Shield className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="truncate">Visitante</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-white/10 text-[10px] font-mono shrink-0">
               {awayStarters.length + awaySubstitutes.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('events')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            className={`py-2.5 sm:py-3 px-2 sm:px-4 text-[11px] sm:text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'events'
                 ? 'border-[#D4AF37] text-amber-300 bg-white/5'
                 : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Activity className="w-4 h-4 text-emerald-400" />
-            <span>Incidencias & Goles</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-white/10 text-[10px] font-mono">
+            <Activity className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="truncate">Goles</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-white/10 text-[10px] font-mono shrink-0">
               {events.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('officials')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            className={`py-2.5 sm:py-3 px-2 sm:px-4 text-[11px] sm:text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'officials'
                 ? 'border-[#D4AF37] text-amber-300 bg-white/5'
                 : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Flag className="w-4 h-4 text-yellow-400" />
-            <span>DT & Árbitro</span>
+            <Flag className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+            <span className="truncate">Árbitros</span>
           </button>
         </div>
 

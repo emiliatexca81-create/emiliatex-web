@@ -9,14 +9,15 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore, TournamentCategory } from '../types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore, TournamentCategory, ClientWorkItem } from '../types';
 import { 
   initialProducts, 
   initialMatches, 
   initialPlayers, 
   initialAcademies, 
   initialOrders, 
-  initialSettings 
+  initialSettings,
+  initialClientWorks
 } from '../data/initialData';
 
 export const initialQuinielas: QuinielaEntry[] = [];
@@ -30,10 +31,12 @@ const KEYS = {
   SETTINGS: 'emiliatex_settings_v1',
   QUINIELAS: 'emiliatex_quinielas_v1',
   USER_QUINIELA: 'emiliatex_user_quiniela_v1',
+  CLIENT_WORKS: 'emiliatex_client_works_v1',
   INITIALIZED_MATCHES: 'emiliatex_matches_initialized_v1',
   INITIALIZED_PRODUCTS: 'emiliatex_products_initialized_v1',
   INITIALIZED_PLAYERS: 'emiliatex_players_initialized_v1',
   INITIALIZED_ACADEMIES: 'emiliatex_academies_initialized_v1',
+  INITIALIZED_CLIENT_WORKS: 'emiliatex_client_works_initialized_v1',
   DELETED_MATCH_IDS: 'emiliatex_deleted_match_ids_v1',
   INITIALIZED_QUINIELAS: 'emiliatex_quinielas_initialized_v1',
   DELETED_QUINIELA_IDS: 'emiliatex_deleted_quiniela_ids_v1',
@@ -63,7 +66,9 @@ function setItem<T>(key: string, value: T, notify: boolean = true): void {
     }
     localStorage.setItem(key, serialized);
     if (notify) {
-      window.dispatchEvent(new CustomEvent('emiliatex_storage_update', { detail: { key } }));
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('emiliatex_storage_update', { detail: { key } }));
+      }, 0);
     }
   } catch (err) {
     console.error(`Error saving ${key} to localStorage:`, err);
@@ -768,23 +773,17 @@ export async function deleteOrder(id: string): Promise<OrderQuotation[]> {
 
 export function getSettings(): AppSettings {
   const current = getItem<AppSettings>(KEYS.SETTINGS, initialSettings);
-  let changed = false;
-  if (!current.emailContact || current.emailContact === 'contacto@emiliatex.com') {
-    current.emailContact = 'emiliatexca81@gmail.com';
-    changed = true;
-  }
-  if (!current.address || current.address === 'Zona Industrial Textil, Medellín / Bogotá, Colombia') {
-    current.address = 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela';
-    changed = true;
-  }
-  if (!current.companyLogoUrl) {
-    current.companyLogoUrl = 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d';
-    changed = true;
-  }
-  if (changed) {
-    setItem(KEYS.SETTINGS, current);
-  }
-  return current;
+  return {
+    ...initialSettings,
+    ...current,
+    emailContact: current.emailContact && current.emailContact !== 'contacto@emiliatex.com'
+      ? current.emailContact
+      : initialSettings.emailContact,
+    address: current.address && current.address !== 'Zona Industrial Textil, Medellín / Bogotá, Colombia'
+      ? current.address
+      : initialSettings.address,
+    companyLogoUrl: current.companyLogoUrl || initialSettings.companyLogoUrl
+  };
 }
 
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {
@@ -1401,6 +1400,85 @@ export function subscribeQuinielas(callback: (quinielas: QuinielaEntry[]) => voi
     (error) => {
       console.warn('Quinielas subscription notice:', error.message);
       callback(getQuinielas());
+    }
+  );
+}
+
+// ---------------- CLIENT WORKS GALLERY ----------------
+export function getClientWorks(): ClientWorkItem[] {
+  const isInitialized = typeof window !== 'undefined' && localStorage.getItem(KEYS.INITIALIZED_CLIENT_WORKS) === 'true';
+  const stored = getItem<ClientWorkItem[]>(KEYS.CLIENT_WORKS, isInitialized ? [] : initialClientWorks);
+  if (stored && stored.length > 0 && stored.length < initialClientWorks.length) {
+    const existingIds = new Set(stored.map(item => item.id));
+    const merged = [...stored];
+    for (const initW of initialClientWorks) {
+      if (!existingIds.has(initW.id)) {
+        merged.push(initW);
+      }
+    }
+    return merged;
+  }
+  return stored;
+}
+
+export async function saveClientWork(item: ClientWorkItem): Promise<ClientWorkItem[]> {
+  const current = getClientWorks();
+  const existsIdx = current.findIndex(w => w.id === item.id);
+  let updated: ClientWorkItem[];
+  if (existsIdx >= 0) {
+    updated = [...current];
+    updated[existsIdx] = item;
+  } else {
+    updated = [item, ...current];
+  }
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_CLIENT_WORKS, 'true');
+  }
+  setItem(KEYS.CLIENT_WORKS, updated);
+
+  try {
+    await setDoc(doc(db, 'client_works', item.id), cleanFirestoreData(item));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `client_works/${item.id}`);
+  }
+  return updated;
+}
+
+export async function deleteClientWork(id: string): Promise<ClientWorkItem[]> {
+  const current = getClientWorks();
+  const updated = current.filter(w => w.id !== id);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_CLIENT_WORKS, 'true');
+  }
+  setItem(KEYS.CLIENT_WORKS, updated);
+
+  try {
+    await deleteDoc(doc(db, 'client_works', id));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `client_works/${id}`);
+  }
+  return updated;
+}
+
+export function subscribeClientWorks(callback: (items: ClientWorkItem[]) => void): () => void {
+  const path = 'client_works';
+  return onSnapshot(
+    collection(db, path),
+    (snapshot) => {
+      if (!snapshot.empty) {
+        const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as ClientWorkItem));
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(KEYS.INITIALIZED_CLIENT_WORKS, 'true');
+        }
+        setItem(KEYS.CLIENT_WORKS, list, false);
+        callback(list);
+      } else {
+        callback(getClientWorks());
+      }
+    },
+    (error) => {
+      console.warn('Client works subscription notice:', error.message);
+      callback(getClientWorks());
     }
   );
 }

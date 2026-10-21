@@ -177,3 +177,18 @@ export interface QuinielaEntry {
   createdAt: string;
   updatedAt?: string;
 }
+
+export type ClientWorkCategory = 'futbol' | 'baloncesto' | 'corporativo' | 'polos' | 'chaquetas' | 'academias';
+
+export interface ClientWorkItem {
+  id: string;
+  title: string;
+  clientName: string;
+  category: ClientWorkCategory;
+  imageUrl: string; // 4:5 aspect ratio
+  yearOrDate?: string;
+  description: string;
+  technique?: string; // Ej: "Sublimación Full Print HD", "Bordado Computarizado 3D", "Tela Dry-Tech"
+  tags?: string[];
+  featured?: boolean;
+}

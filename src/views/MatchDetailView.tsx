@@ -359,43 +359,43 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
         </div>
       )}
 
-      {/* Sub Navigation for Match Details - APK segmented mobile bar */}
-      <div className="p-1.5 rounded-2xl neu-pressed flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth">
+      {/* Sub Navigation for Match Details - Grouped mobile dock */}
+      <div className="p-1.5 rounded-2xl neu-pressed grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2">
         <button
           onClick={() => setActiveTab('lineups')}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer active:scale-95 ${
+          className={`flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer active:scale-95 ${
             activeTab === 'lineups'
-              ? 'neu-btn-gold text-black shadow-md'
+              ? 'neu-btn-gold text-black shadow-md font-extrabold'
               : 'neu-btn-dark text-slate-300 hover:text-white'
           }`}
         >
-          <Activity className="w-4 h-4" />
-          <span className="sm:hidden">Alineaciones</span>
+          <Activity className="w-4 h-4 shrink-0" />
+          <span className="sm:hidden">Alineación</span>
           <span className="hidden sm:inline">Alineaciones & Convocados</span>
         </button>
 
         <button
           onClick={() => setActiveTab('events')}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer active:scale-95 ${
+          className={`flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer active:scale-95 ${
             activeTab === 'events'
-              ? 'neu-btn-gold text-black shadow-md'
+              ? 'neu-btn-gold text-black shadow-md font-extrabold'
               : 'neu-btn-dark text-slate-300 hover:text-white'
           }`}
         >
-          <Flame className="w-4 h-4" />
+          <Flame className="w-4 h-4 shrink-0" />
           <span className="sm:hidden">Goles ({events.length})</span>
           <span className="hidden sm:inline">Incidencias & Goles ({events.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('info')}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer active:scale-95 ${
+          className={`flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer active:scale-95 ${
             activeTab === 'info'
-              ? 'neu-btn-gold text-black shadow-md'
+              ? 'neu-btn-gold text-black shadow-md font-extrabold'
               : 'neu-btn-dark text-slate-300 hover:text-white'
           }`}
         >
-          <Shield className="w-4 h-4" />
+          <Shield className="w-4 h-4 shrink-0" />
           <span className="sm:hidden">Ficha</span>
           <span className="hidden sm:inline">Ficha Técnica & Clubes</span>
         </button>

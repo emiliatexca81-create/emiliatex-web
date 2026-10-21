@@ -299,7 +299,7 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
         </div>
 
         {/* Category Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth -mx-2 px-2 sm:mx-0 sm:px-0 flex-nowrap sm:flex-wrap pt-1">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1">
           <button
             onClick={() => setSelectedCategory('all')}
             className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
@@ -386,7 +386,7 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
             </div>
 
             {/* Position Filter */}
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+            <div className="flex flex-wrap items-center gap-1">
               {(['all', 'Portero', 'Defensa', 'Centrocampista', 'Delantero'] as const).map(pos => (
                 <button
                   key={pos}

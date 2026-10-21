@@ -80,6 +80,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, settings: propSettin
               </li>
               <li>
                 <button
+                  onClick={() => onNavigate('gallery')}
+                  className="hover:text-amber-300 transition-colors flex items-center gap-2 text-slate-400"
+                >
+                  <span className="text-[#D4AF37] font-bold">›</span> Galería de Clientes
+                </button>
+              </li>
+              <li>
+                <button
                   onClick={() => onNavigate('tournament')}
                   className="hover:text-amber-300 transition-colors flex items-center gap-2 text-slate-400"
                 >

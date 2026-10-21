@@ -9,8 +9,9 @@ import { TournamentView } from './views/TournamentView';
 import { AdminView } from './views/AdminView';
 import { MatchDetailView } from './views/MatchDetailView';
 import { QuinielaView } from './views/QuinielaView';
+import { ClientGalleryView } from './views/ClientGalleryView';
 import { ProductQuoteModal } from './components/ProductQuoteModal';
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, QuinielaEntry } from './types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, QuinielaEntry, ClientWorkItem } from './types';
 import { 
   getProducts, 
   getMatches, 
@@ -19,6 +20,7 @@ import {
   getOrders, 
   getSettings, 
   getQuinielas,
+  getClientWorks,
   formatWhatsAppLink,
   subscribeProducts,
   subscribeMatches,
@@ -27,6 +29,7 @@ import {
   subscribeOrders,
   subscribeSettings,
   subscribeQuinielas,
+  subscribeClientWorks,
   seedInitialFirestoreData
 } from './services/storage';
 import { AuthProvider } from './services/authContext';
@@ -36,7 +39,7 @@ function AppContent() {
   const [currentPage, setCurrentPage] = useState<NavPage>(() => {
     const params = new URLSearchParams(window.location.search);
     const pageParam = params.get('page') as NavPage;
-    if (pageParam && ['home', 'catalog', 'tournament', 'quiniela', 'admin'].includes(pageParam)) {
+    if (pageParam && ['home', 'catalog', 'gallery', 'tournament', 'quiniela', 'admin'].includes(pageParam)) {
       return pageParam;
     }
     if (params.get('adminSection')) {
@@ -62,6 +65,7 @@ function AppContent() {
   const [orders, setOrders] = useState<OrderQuotation[]>(getOrders());
   const [settings, setSettings] = useState<AppSettings>(getSettings());
   const [quinielas, setQuinielas] = useState<QuinielaEntry[]>(getQuinielas());
+  const [clientWorks, setClientWorks] = useState<ClientWorkItem[]>(getClientWorks());
   const [quoteProduct, setQuoteProduct] = useState<Product | null>(null);
 
   // Active selected match object (if any)
@@ -76,6 +80,7 @@ function AppContent() {
     setOrders(getOrders());
     setSettings(getSettings());
     setQuinielas(getQuinielas());
+    setClientWorks(getClientWorks());
   };
 
   useEffect(() => {
@@ -95,7 +100,7 @@ function AppContent() {
       }
       setSelectedMatchId(null);
 
-      if (pageParam && ['home', 'catalog', 'tournament', 'quiniela', 'admin'].includes(pageParam)) {
+      if (pageParam && ['home', 'catalog', 'gallery', 'tournament', 'quiniela', 'admin'].includes(pageParam)) {
         setCurrentPage(pageParam);
       } else if (params.get('adminSection')) {
         setCurrentPage('admin');
@@ -126,6 +131,8 @@ function AppContent() {
         setSettings(getSettings());
       } else if (key === 'emiliatex_quinielas_v1') {
         setQuinielas(getQuinielas());
+      } else if (key === 'emiliatex_client_works_v1') {
+        setClientWorks(getClientWorks());
       } else {
         loadData();
       }
@@ -140,6 +147,7 @@ function AppContent() {
     const unsubOrders = subscribeOrders((o) => setOrders(o));
     const unsubSettings = subscribeSettings((s) => setSettings(s));
     const unsubQuinielas = subscribeQuinielas((q) => setQuinielas(q));
+    const unsubClientWorks = subscribeClientWorks((works) => setClientWorks(works));
 
     // Attempt seed to populate Firestore if collections are blank
     seedInitialFirestoreData().catch(() => {});
@@ -154,6 +162,7 @@ function AppContent() {
       unsubOrders();
       unsubSettings();
       unsubQuinielas();
+      unsubClientWorks();
     };
   }, []);
 
@@ -201,7 +210,12 @@ function AppContent() {
     <div className="min-h-screen flex flex-col bg-[#090A0F] text-slate-100 selection:bg-[#D4AF37] selection:text-black">
       
       {/* Top Navigation */}
-      <Navbar currentPage={currentPage} onNavigate={handleNavigate} />
+      <Navbar 
+        currentPage={currentPage} 
+        onNavigate={handleNavigate}
+        hasLiveMatch={hasLiveMatch}
+        settings={settings}
+      />
 
       {/* Main Content Area - Generous bottom padding on mobile so it clears the Bottom Navigation Dock */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-8 pb-24 md:pb-12">
@@ -232,6 +246,7 @@ function AppContent() {
               <HomeView
                 products={products}
                 matches={matches}
+                clientWorks={clientWorks}
                 onNavigate={handleNavigate}
                 onSelectProduct={(p) => setQuoteProduct(p)}
                 onSelectMatch={handleSelectMatch}
@@ -242,6 +257,18 @@ function AppContent() {
               <CatalogView
                 products={products}
                 onSelectProduct={(p) => setQuoteProduct(p)}
+              />
+            )}
+
+            {currentPage === 'gallery' && (
+              <ClientGalleryView
+                works={clientWorks}
+                onNavigate={handleNavigate}
+                onSelectProduct={(productName) => {
+                  const match = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
+                  if (match) setQuoteProduct(match);
+                  else handleNavigate('catalog');
+                }}
               />
             )}
 
@@ -273,6 +300,7 @@ function AppContent() {
                 orders={orders}
                 settings={settings}
                 quinielas={quinielas}
+                clientWorks={clientWorks}
                 onRefresh={loadData}
                 initialSection={(initialAdminSection as any) || undefined}
               />

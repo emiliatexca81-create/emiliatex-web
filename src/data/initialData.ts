@@ -1,4 +1,4 @@
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings } from '../types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, ClientWorkItem } from '../types';
 
 export const initialSettings: AppSettings = {
   whatsappNumber: '573124567890',
@@ -1122,3 +1122,127 @@ export const initialOrders: OrderQuotation[] = [
     whatsappMessageSent: true
   }
 ];
+
+export const initialClientWorks: ClientWorkItem[] = [
+  {
+    id: 'cw-1',
+    title: 'Indumentaria Titular Oro & Carbón Pro',
+    clientName: 'Deportivo Emiliatex FC',
+    category: 'futbol',
+    imageUrl: 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Temporada 2026',
+    description: 'Equipación completa confeccionada para el equipo titular. Sublimación de alta fidelidad con degradados geométricos dorados sobre base carbón mate.',
+    technique: 'Sublimación Digital HD • Dry-Fit Microperforado',
+    tags: ['Sublimación Completa', 'Cuello V Anatómico', 'Escudo HD'],
+    featured: true
+  },
+  {
+    id: 'cw-2',
+    title: 'Kit Juvenil de Competición Sub-15',
+    clientName: 'Cantera de Héroes Envigado',
+    category: 'academias',
+    imageUrl: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Julio 2026',
+    description: 'Dotación integral de 30 uniformes para la división juvenil. Camisetas con tecnología de secado rápido y pantalonetas con refuerzo entrepierna.',
+    technique: 'Textil Dry-Tech UV50+ • Costuras Reforzadas 5 Hilos',
+    tags: ['Formativo Juvenil', 'Dorsales Vinilo Textil', 'Calidad Exportación'],
+    featured: true
+  },
+  {
+    id: 'cw-3',
+    title: 'Camiseta de Gala Verde Esmeralda & Oro',
+    clientName: 'Alianza Antioquia FC',
+    category: 'futbol',
+    imageUrl: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Agosto 2026',
+    description: 'Diseño exclusivo con tramas arquitectónicas inspiradas en la ciudad. Escudo institucional en alta definición y patrocinadores sublimados al tono.',
+    technique: 'Sublimación al 100% • Cuello Tejido Ribb Jacquard',
+    tags: ['Edición Especial', 'Cuello Ribb', 'Sublimación Térmica'],
+    featured: true
+  },
+  {
+    id: 'cw-4',
+    title: 'Equipación Reversible Basketball Pro',
+    clientName: 'Titanes del Baloncesto Club',
+    category: 'baloncesto',
+    imageUrl: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: '2026',
+    description: 'Juegos dobles reversibles (negro/dorado y blanco/plata) para torneo interclubes. Malla deportiva ultra transpirable con números oficiales FIBA.',
+    technique: 'Malla Mesh Bicolor • Sublimado Reversible Doble Faz',
+    tags: ['Baloncesto', 'Reversible', 'Mesh Transpirable'],
+    featured: true
+  },
+  {
+    id: 'cw-5',
+    title: 'Polos Ejecutivas Piqué Algodón Premium',
+    clientName: 'Grupo Logístico & Aduanero del Valle',
+    category: 'corporativo',
+    imageUrl: 'https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Agosto 2026',
+    description: 'Dotación corporativa para más de 80 colaboradores administrativos y comerciales. Piqué 65/35 preencogido que no destiñe ni deforma con las lavadas.',
+    technique: 'Bordado Computarizado 3D • Piqué Premium 220g',
+    tags: ['Dotación Empresarial', 'Bordado Directo', 'Corte Dama & Caballero'],
+    featured: false
+  },
+  {
+    id: 'cw-6',
+    title: 'Chaquetas Impermeables Rompevientos Térmicas',
+    clientName: 'Distribuciones Los Andes SAS',
+    category: 'chaquetas',
+    imageUrl: 'https://images.unsplash.com/photo-1544441893-675973e31985?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Septiembre 2026',
+    description: 'Chaquetas con forro polar interior para clima frío y exterior en náutica antifluido con ribetes reflectivos de 2 pulgadas para seguridad vial.',
+    technique: 'Náutica Antifluido • Reflectivo Grado Seguridad • Forro Polar',
+    tags: ['Dotación Industrial', 'Cintas Reflectivas', 'Térmico & Antifluido'],
+    featured: true
+  },
+  {
+    id: 'cw-7',
+    title: 'Camiseta de Presentación & Concentración',
+    clientName: 'Academia Real Élite',
+    category: 'polos',
+    imageUrl: 'https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Temporada 2026',
+    description: 'Camisetas cuello redondo de algodón peinado con elastano para concentración previa a partidos oficiales del Torneo Élite.',
+    technique: 'Serigrafía Tacto Cero • Algodón Peinado 180g',
+    tags: ['Concentración', 'Algodón Peinado', 'Tacto Cero'],
+    featured: false
+  },
+  {
+    id: 'cw-8',
+    title: 'Kit Infantil Formativo Sub-7 & Sub-9',
+    clientName: 'Escuela Semillero Futuras Estrellas',
+    category: 'academias',
+    imageUrl: 'https://images.unsplash.com/photo-1517466787929-bc90951d0974?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: '2026',
+    description: 'Uniformes livianos con silueta anatómica diseñada para niños, telas hipoalergénicas y elásticos suaves que no marcan la cintura.',
+    technique: 'Textil Hipoalergénico • Sublimación Ecológica al Agua',
+    tags: ['Categorías Infantiles', 'Elásticos Soft-Comfort', 'Sub-7 y Sub-9'],
+    featured: true
+  },
+  {
+    id: 'cw-9',
+    title: 'Sudadera Completa de Viaje & Desfile',
+    clientName: 'Club Deportivo Vencedores',
+    category: 'chaquetas',
+    imageUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Junio 2026',
+    description: 'Conjunto de chaqueta y pantalón entubado con cremalleras en botamanga. Tejido microfibra perchada con alta durabilidad y escudo bordado.',
+    technique: 'Microfibra Perchada • Cierres YKK • Bordado Institucional',
+    tags: ['Chándal de Viaje', 'Pantalón Entubado', 'Bordado'],
+    featured: false
+  },
+  {
+    id: 'cw-10',
+    title: 'Uniforme de Arquero Edición Neón Impact',
+    clientName: 'Sporting Metropolitano',
+    category: 'futbol',
+    imageUrl: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&h=1000&fit=crop&q=85',
+    yearOrDate: 'Temporada 2026',
+    description: 'Equipación de guardameta con protecciones acolchadas en codos y caderas. Tonos flúor vibrantes para máxima visibilidad en el área.',
+    technique: 'Sublimado Flúor Neón • Acolchado de Alta Densidad en Codos',
+    tags: ['Portero', 'Acolchado Ergonómico', 'Colores Neón'],
+    featured: true
+  }
+];
+
