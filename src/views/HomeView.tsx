@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Product, TournamentMatch, ClientWorkItem } from '../types';
 import { NavPage } from '../components/Navbar';
 import { MessageCircle, Trophy, Shirt, ArrowRight, ShieldCheck, Sparkles, Flame, Clock, MapPin, CheckCircle, ChevronRight, Eye, Camera, Tag } from 'lucide-react';
-import { formatWhatsAppLink, getSettings } from '../services/storage';
+import { formatWhatsAppLink, getSettings, formatMatchTime } from '../services/storage';
 
 interface HomeViewProps {
   products: Product[];
@@ -208,7 +208,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 ) : (
                   <span className="px-2.5 py-1 rounded-full neu-pressed text-amber-300 font-semibold text-[10px] flex items-center gap-1">
                     <Clock className="w-3 h-3 text-[#D4AF37]" />
-                    {match.date} • {match.time}
+                    {match.date} • {formatMatchTime(match.time)}
                   </span>
                 )}
               </div>

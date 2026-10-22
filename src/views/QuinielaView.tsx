@@ -42,7 +42,8 @@ import {
   purgeAllOrphanedPredictions,
   getMatchJornada,
   getAvailableJornadas,
-  getActiveOrLatestJornada
+  getActiveOrLatestJornada,
+  formatMatchTime
 } from '../services/storage';
 
 interface QuinielaViewProps {
@@ -769,7 +770,7 @@ export const QuinielaView: React.FC<QuinielaViewProps> = ({
                       </div>
                       <div className="flex items-center gap-1.5 text-slate-400">
                         <Calendar className="w-3.5 h-3.5 text-[#D4AF37]" />
-                        <span>{match.date} • {match.time}</span>
+                        <span>{match.date} • {formatMatchTime(match.time)}</span>
                       </div>
                     </div>
 

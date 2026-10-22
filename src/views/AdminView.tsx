@@ -102,7 +102,8 @@ import {
   recalculateAllStandingsAndQuinielas,
   getClientWorks,
   saveClientWork,
-  deleteClientWork
+  deleteClientWork,
+  formatMatchTime
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
 import { doc, setDoc } from 'firebase/firestore';
@@ -481,7 +482,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>, 
-    target: 'product' | 'productGallery' | 'matchHome' | 'matchAway' | 'player' | 'academy'
+    target: 'product' | 'productGallery' | 'matchHome' | 'matchAway' | 'player' | 'academy' | 'clientWork'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -493,6 +494,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       player: 'players',
       matchHome: 'matches',
       matchAway: 'matches',
+      clientWork: 'gallery',
     };
     const folder = folderMap[target] || 'uploads';
 
@@ -525,6 +527,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
         setPlayerForm(prev => ({ ...prev, photo: downloadUrl }));
       } else if (target === 'academy') {
         setAcademyForm(prev => ({ ...prev, logo: downloadUrl }));
+      } else if (target === 'clientWork') {
+        setWorkForm(prev => ({ ...prev, imageUrl: downloadUrl }));
       }
 
       showToast(`¡Archivo subido exitosamente a Firebase Storage (${folder}/)!`, 'success');
@@ -2416,7 +2420,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">Fecha & Hora:</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">Fecha & Hora:</label>
+                  {matchForm.time && (
+                    <span className="text-xs font-mono font-black text-amber-300 px-2 py-0.5 rounded-md neu-pressed flex items-center gap-1">
+                      <span>Hora Oficial:</span>
+                      <strong className="text-white">{formatMatchTime(matchForm.time)}</strong>
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2.5">
                   <input
                     type="date"
@@ -2428,7 +2440,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     type="time"
                     value={matchForm.time}
                     onChange={e => setMatchForm({ ...matchForm, time: e.target.value })}
-                    className="w-36 px-4 py-3 rounded-2xl neu-pressed text-white text-xs sm:text-sm font-mono font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all text-center"
+                    className="w-40 px-4 py-3 rounded-2xl neu-pressed text-white text-xs sm:text-sm font-mono font-medium border border-white/10 focus:border-[#D4AF37] focus:outline-none transition-all text-center"
                   />
                 </div>
               </div>
@@ -2735,7 +2747,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         {m.stage || 'Fase de Grupos'}
                       </span>
                       <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">
-                        {m.phase} • {m.date} {m.time}
+                        {m.phase} • {m.date} • {formatMatchTime(m.time)}
                       </span>
                     </div>
                     <p className="text-sm sm:text-base font-black text-white font-cinzel tracking-wide">
@@ -4737,21 +4749,74 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold text-slate-300">
-                      URL de la Fotografía (Formato 4:5 recomendado) <span className="text-amber-400">*</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-300">
+                        Fotografía de la Prenda <span className="text-amber-400">*</span>
+                      </label>
+                      <span className="text-[10px] text-amber-300 font-mono font-bold">
+                        Formato vertical 4:5 recomendado
+                      </span>
+                    </div>
+
+                    {/* Quick Button to Upload Directly from Phone/PC + URL Input */}
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="url"
+                        required
+                        value={workForm.imageUrl}
+                        onChange={e => setWorkForm({ ...workForm, imageUrl: e.target.value })}
+                        placeholder="https://... o presiona 'Subir Imagen' para subirla desde tu dispositivo"
+                        className="flex-1 px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none font-mono"
+                      />
+                      <label className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider cursor-pointer shrink-0 shadow-md active:scale-95 transition-transform hover:brightness-110">
+                        <UploadCloud className="w-4 h-4 text-black" />
+                        <span>{uploadingTarget === 'clientWork' ? 'Subiendo...' : 'Subir Imagen'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={uploadingTarget === 'clientWork'}
+                          className="hidden"
+                          onChange={e => handleFileUpload(e, 'clientWork')}
+                        />
+                      </label>
+                    </div>
+
+                    {/* Interactive Dropzone Box for One-Click Upload */}
+                    <label className="group relative border-2 border-dashed border-[#D4AF37]/40 hover:border-[#D4AF37] rounded-2xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-all bg-black/30 hover:bg-[#D4AF37]/5">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingTarget === 'clientWork'}
+                        className="hidden"
+                        onChange={e => handleFileUpload(e, 'clientWork')}
+                      />
+                      <div className="w-10 h-10 rounded-xl neu-pressed text-[#D4AF37] flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                        <UploadCloud className="w-5 h-5" />
+                      </div>
+                      <p className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
+                        {uploadingTarget === 'clientWork' ? 'Subiendo a Firebase Storage...' : 'Toca aquí para seleccionar una foto de tu celular o computadora'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Sube automáticamente a la nube y completa la URL con la proporción vertical 4:5.
+                      </p>
                     </label>
-                    <input
-                      type="url"
-                      required
-                      value={workForm.imageUrl}
-                      onChange={e => setWorkForm({ ...workForm, imageUrl: e.target.value })}
-                      placeholder="https://images.unsplash.com/... o enlace de Firebase Storage"
-                      className="w-full px-3.5 py-2.5 rounded-xl neu-pressed text-white text-xs focus:border-[#D4AF37] focus:outline-none font-mono"
-                    />
-                    <p className="text-[10px] text-slate-400">
-                      Puedes pegar cualquier URL web o enlace de Firebase Storage. El visor aplicará automáticamente la proporción exacta 4:5.
-                    </p>
+
+                    {/* Progress Indicator */}
+                    {uploadProgress['clientWork'] && (
+                      <div className="space-y-1.5 p-3 rounded-xl neu-card border border-amber-400/40 animate-in fade-in">
+                        <div className="flex items-center justify-between text-xs text-amber-300 font-mono">
+                          <span>{uploadProgress['clientWork'].status}</span>
+                          <span className="font-bold">{uploadProgress['clientWork'].percent}%</span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 transition-all duration-300"
+                            style={{ width: `${uploadProgress['clientWork'].percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-1">
@@ -4816,19 +4881,42 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <div className="rounded-3xl neu-card overflow-hidden border border-[#D4AF37]/50 shadow-xl flex flex-col max-w-xs mx-auto">
                     <div className="relative w-full aspect-[4/5] bg-black/70 overflow-hidden flex items-center justify-center">
                       {workForm.imageUrl ? (
-                        <img
-                          src={workForm.imageUrl}
-                          alt={workForm.title || 'Vista previa'}
-                          className="w-full h-full object-cover object-center"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=1000&fit=crop&q=85';
-                          }}
-                        />
+                        <>
+                          <img
+                            src={workForm.imageUrl}
+                            alt={workForm.title || 'Vista previa'}
+                            className="w-full h-full object-cover object-center"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=1000&fit=crop&q=85';
+                            }}
+                          />
+                          <label className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl neu-btn-gold text-black text-[10px] font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-xl hover:brightness-110">
+                            <UploadCloud className="w-3.5 h-3.5 text-black" />
+                            <span>{uploadingTarget === 'clientWork' ? 'Subiendo...' : 'Cambiar Foto'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              disabled={uploadingTarget === 'clientWork'}
+                              className="hidden"
+                              onChange={e => handleFileUpload(e, 'clientWork')}
+                            />
+                          </label>
+                        </>
                       ) : (
-                        <div className="text-center p-6 space-y-2 text-slate-500">
-                          <Camera className="w-10 h-10 mx-auto text-slate-600" />
-                          <p className="text-xs font-semibold">Ingresa una URL para ver la vista previa 4:5</p>
-                        </div>
+                        <label className="text-center p-6 space-y-2 text-slate-400 cursor-pointer hover:text-amber-300 transition-colors w-full h-full flex flex-col items-center justify-center">
+                          <div className="w-12 h-12 rounded-2xl neu-pressed text-[#D4AF37] flex items-center justify-center mb-1">
+                            <UploadCloud className="w-6 h-6" />
+                          </div>
+                          <p className="text-xs font-bold text-white">Haz clic aquí para subir una foto</p>
+                          <p className="text-[10px] text-slate-400 font-mono">o pega una URL directa</p>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={uploadingTarget === 'clientWork'}
+                            className="hidden"
+                            onChange={e => handleFileUpload(e, 'clientWork')}
+                          />
+                        </label>
                       )}
 
                       <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1 pointer-events-none">

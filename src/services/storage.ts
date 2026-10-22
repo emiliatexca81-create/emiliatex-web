@@ -1512,3 +1512,30 @@ export function formatWhatsAppLink(phone: string, text: string): string {
   const encodedText = encodeURIComponent(text);
   return `https://wa.me/${cleanPhone}?text=${encodedText}`;
 }
+
+// ---------------- TIME FORMATTER (12-Hour AM/PM) ----------------
+export function formatMatchTime(timeStr?: string): string {
+  if (!timeStr) return '';
+  const clean = timeStr.replace(/\s*hrs\.?/i, '').replace(/\s*horas?/i, '').trim();
+  if (!clean) return '';
+
+  // If already formatted with AM/PM
+  if (/am|pm/i.test(clean)) {
+    return clean.toUpperCase();
+  }
+
+  // Check for 24-hour military pattern "HH:mm" or "H:mm"
+  const match = clean.match(/^(\d{1,2}):(\d{2})$/);
+  if (match) {
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    if (!isNaN(hours)) {
+      const period = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      if (hours === 0) hours = 12;
+      return `${hours}:${minutes} ${period}`;
+    }
+  }
+
+  return clean;
+}

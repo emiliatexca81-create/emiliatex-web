@@ -23,6 +23,7 @@ import {
   Sparkles,
   X
 } from 'lucide-react';
+import { formatMatchTime } from '../services/storage';
 
 interface AcademyProfileViewProps {
   academy: Academy;
@@ -620,7 +621,7 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
                           <span className={!isHome ? 'text-amber-300' : 'text-white'}>{m.awayScore ?? 0}</span>
                         </span>
                       ) : (
-                        <span className="text-slate-400 text-xs font-mono">{m.time || 'VS'}</span>
+                        <span className="text-slate-400 text-xs font-mono">{m.time ? formatMatchTime(m.time) : 'VS'}</span>
                       )}
                     </div>
 

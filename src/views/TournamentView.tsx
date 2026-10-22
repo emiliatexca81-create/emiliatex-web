@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage } from '../types';
 import { NavPage } from '../components/Navbar';
 import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink } from 'lucide-react';
-import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas } from '../services/storage';
+import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas, formatMatchTime } from '../services/storage';
 import { AcademyProfileView } from './AcademyProfileView';
 
 interface TournamentViewProps {
@@ -979,7 +979,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                               </span>
                             ) : (
                               <span className="px-2.5 py-1 rounded-xl neu-pressed text-amber-300 text-[10px] font-bold">
-                                {match.date} • {match.time}
+                                {match.date} • {formatMatchTime(match.time)}
                               </span>
                             )}
                           </div>
@@ -1133,7 +1133,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                         </span>
                       ) : (
                         <span className="px-2.5 py-1 rounded-xl neu-pressed text-amber-300 text-[10px] font-bold">
-                          {match.date} • {match.time}
+                          {match.date} • {formatMatchTime(match.time)}
                         </span>
                       )}
                     </div>

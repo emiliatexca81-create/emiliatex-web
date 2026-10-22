@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TournamentMatch, Academy, Player, MatchLineupPlayer, MatchEvent } from '../types';
+import { formatMatchTime } from '../services/storage';
 import { 
   ArrowLeft, 
   Trophy, 
@@ -205,7 +206,7 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
             ) : (
               <span className="px-3 py-1 rounded-full neu-pressed text-amber-300 border border-amber-400/30 font-bold text-xs flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-[#D4AF37]" />
-                Programado: {match.date} • {match.time} hrs
+                Programado: {match.date} • {formatMatchTime(match.time)}
               </span>
             )}
           </div>
@@ -254,7 +255,7 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
                   <div className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-2xl neu-pressed-gold text-amber-300 font-cinzel font-black text-lg sm:text-3xl shadow-inner">
                     VS
                   </div>
-                  <p className="text-[9px] sm:text-[11px] text-slate-400 font-mono whitespace-nowrap">{match.time} hrs</p>
+                  <p className="text-[9px] sm:text-[11px] text-amber-300 font-mono font-bold whitespace-nowrap">{formatMatchTime(match.time)}</p>
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -325,7 +326,7 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
 
           <div className="flex items-center gap-1.5">
             <Calendar className="w-4 h-4 text-[#D4AF37]" />
-            <span>{match.date} • {match.time} hrs</span>
+            <span>{match.date} • {formatMatchTime(match.time)}</span>
           </div>
 
           {match.referee && (
