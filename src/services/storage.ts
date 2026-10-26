@@ -9,7 +9,7 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore, TournamentCategory, ClientWorkItem } from '../types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore, TournamentCategory, ClientWorkItem, TOURNAMENT_CATEGORIES } from '../types';
 import { 
   initialProducts, 
   initialMatches, 
@@ -469,8 +469,37 @@ export function normalizeTeamName(name?: string): string {
 }
 
 /**
+ * Normalizes category strings (e.g., 'Sub-15', 'Sub 15', 'sub-15' -> 'sub-15')
+ */
+export function normalizeCategory(cat?: string): string {
+  if (!cat) return '';
+  return cat.trim().toLowerCase().replace(/[\s_]+/g, '-');
+}
+
+/**
+ * Strict team matching: Matches exclusively by ID or exact normalized name.
+ * Avoids dangerous substring collisions (e.g., prevents 'Atlético Los Andes' matching 'Atlético Dorado').
+ */
+export function isTeamMatch(
+  matchTeamId: string | undefined,
+  matchTeamName: string | undefined,
+  acadId: string,
+  acadNormName: string
+): boolean {
+  if (matchTeamId && acadId && matchTeamId === acadId) return true;
+  if (!matchTeamName || !acadNormName) return false;
+  return normalizeTeamName(matchTeamName) === acadNormName;
+}
+
+/**
  * Computes official standings (PJ, PG, PE, PP, GF, GC, DG, PTS) dynamically
- * from finished and live tournament matches.
+ * from finished and live tournament matches with strict category isolation.
+ *
+ * CRITICAL AUDIT RULE:
+ * If a category is specified (e.g., 'Sub-15'), stats are EXCLUSIVELY computed
+ * from matches belonging to that category. If a team has 0 finished matches in
+ * that category, its stats in that category MUST BE ZERO (0 PJ, 0 PTS).
+ * It will NEVER inherit or mix stats from other categories or fallback values.
  */
 export function computeAcademyStandings(
   academies: Academy[],
@@ -496,6 +525,7 @@ export function computeAcademyStandings(
       );
       if (!exists) {
         const id = m.homeAcademyId || `acad-${homeNorm.replace(/[^a-z0-9]/g, '-') || Date.now()}`;
+        const matchCat = (m.category as TournamentCategory) || 'Sub-15';
         academyMap.set(id, {
           id,
           name: m.homeAcademyName,
@@ -503,8 +533,8 @@ export function computeAcademyStandings(
           logo: m.homeLogo || 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=150&auto=format&fit=crop&q=80',
           city: 'Torneo Élite',
           coach: '',
-          category: (m.category as TournamentCategory) || 'Sub-15',
-          categories: [(m.category as TournamentCategory) || 'Sub-15'],
+          category: matchCat,
+          categories: [matchCat],
           played: 0,
           won: 0,
           drawn: 0,
@@ -523,6 +553,7 @@ export function computeAcademyStandings(
       );
       if (!exists) {
         const id = m.awayAcademyId || `acad-${awayNorm.replace(/[^a-z0-9]/g, '-') || Date.now()}`;
+        const matchCat = (m.category as TournamentCategory) || 'Sub-15';
         academyMap.set(id, {
           id,
           name: m.awayAcademyName,
@@ -530,8 +561,8 @@ export function computeAcademyStandings(
           logo: m.awayLogo || 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=150&auto=format&fit=crop&q=80',
           city: 'Torneo Élite',
           coach: '',
-          category: (m.category as TournamentCategory) || 'Sub-15',
-          categories: [(m.category as TournamentCategory) || 'Sub-15'],
+          category: matchCat,
+          categories: [matchCat],
           played: 0,
           won: 0,
           drawn: 0,
@@ -545,18 +576,38 @@ export function computeAcademyStandings(
   }
 
   const allAcademies = Array.from(academyMap.values());
+  const isSpecificCategory = Boolean(category && category !== 'all');
+  const targetCategoryNorm = isSpecificCategory ? normalizeCategory(category) : '';
 
   // 2. Filter academies by category if requested
   const matchingAcademies = allAcademies.filter(acad => {
-    if (!category || category === 'all') return true;
-    const cats = (acad.categories && acad.categories.length > 0) ? acad.categories : [acad.category || 'Sub-15'];
-    return cats.includes(category);
+    if (!isSpecificCategory) return true;
+
+    // Check registered categories
+    const acadCats = (acad.categories && acad.categories.length > 0)
+      ? acad.categories
+      : [acad.category || 'Sub-15'];
+    const isRegisteredInCat = acadCats.some(c => normalizeCategory(c) === targetCategoryNorm);
+
+    // Or check if it has any match scheduled/played in this category
+    const acadNorm = normalizeTeamName(acad.name);
+    const hasMatchInCat = matches.some(m => {
+      const mCatNorm = normalizeCategory(m.category || 'Sub-15');
+      if (mCatNorm !== targetCategoryNorm) return false;
+      return isTeamMatch(m.homeAcademyId, m.homeAcademyName, acad.id, acadNorm) ||
+             isTeamMatch(m.awayAcademyId, m.awayAcademyName, acad.id, acadNorm);
+    });
+
+    return isRegisteredInCat || hasMatchInCat;
   });
 
-  // 3. Identify all valid finished / live matches
+  // 3. Identify all valid finished / live matches strictly for this scope
   const validMatches = matches.filter(m => {
-    if (category && category !== 'all' && m.category && m.category !== category) {
-      return false;
+    if (isSpecificCategory) {
+      const mCatNorm = normalizeCategory(m.category || 'Sub-15');
+      if (mCatNorm !== targetCategoryNorm) {
+        return false;
+      }
     }
     const status = String(m.status || '').toLowerCase().trim();
     const isFinished = status === 'finished' || status === 'finalizado' || status === 'terminado' || status === 'concluido' || status === 'completado';
@@ -579,13 +630,8 @@ export function computeAcademyStandings(
     let goalsAgainst = 0;
 
     for (const m of validMatches) {
-      const homeNorm = normalizeTeamName(m.homeAcademyName);
-      const awayNorm = normalizeTeamName(m.awayAcademyName);
-
-      const isHome = (m.homeAcademyId && acad.id && m.homeAcademyId === acad.id) || 
-                     (homeNorm && acadNormName && (homeNorm === acadNormName || homeNorm.includes(acadNormName) || acadNormName.includes(homeNorm)));
-      const isAway = (m.awayAcademyId && acad.id && m.awayAcademyId === acad.id) || 
-                     (awayNorm && acadNormName && (awayNorm === acadNormName || awayNorm.includes(acadNormName) || acadNormName.includes(awayNorm)));
+      const isHome = isTeamMatch(m.homeAcademyId, m.homeAcademyName, acad.id, acadNormName);
+      const isAway = isTeamMatch(m.awayAcademyId, m.awayAcademyName, acad.id, acadNormName);
 
       if (isHome) {
         played++;
@@ -608,15 +654,29 @@ export function computeAcademyStandings(
       }
     }
 
-    // If matches have been played by this academy, use the dynamic stats from matches!
-    const hasPlayedMatches = played > 0;
-    const finalPlayed = hasPlayedMatches ? played : (acad.played || 0);
-    const finalWon = hasPlayedMatches ? won : (acad.won || 0);
-    const finalDrawn = hasPlayedMatches ? drawn : (acad.drawn || 0);
-    const finalLost = hasPlayedMatches ? lost : (acad.lost || 0);
-    const finalGoalsFor = hasPlayedMatches ? goalsFor : (acad.goalsFor || 0);
-    const finalGoalsAgainst = hasPlayedMatches ? goalsAgainst : (acad.goalsAgainst || 0);
-    const finalPoints = hasPlayedMatches ? (won * 3 + drawn) : (acad.points || 0);
+    // STRICT CATEGORY AUDIT:
+    // If a specific category is requested, stats are 100% computed from matches in that category.
+    // If the academy hasn't played in this category, played = 0 and points = 0.
+    let finalPlayed = played;
+    let finalWon = won;
+    let finalDrawn = drawn;
+    let finalLost = lost;
+    let finalGoalsFor = goalsFor;
+    let finalGoalsAgainst = goalsAgainst;
+    let finalPoints = won * 3 + drawn;
+
+    // Only if general 'all' is requested AND there are literally 0 finished matches in the entire tournament,
+    // preserve initial mock demo stats for initial setup preview
+    if (!isSpecificCategory && validMatches.length === 0 && played === 0) {
+      finalPlayed = acad.played || 0;
+      finalWon = acad.won || 0;
+      finalDrawn = acad.drawn || 0;
+      finalLost = acad.lost || 0;
+      finalGoalsFor = acad.goalsFor || 0;
+      finalGoalsAgainst = acad.goalsAgainst || 0;
+      finalPoints = acad.points || (finalWon * 3 + finalDrawn);
+    }
+
     const finalGoalDiff = finalGoalsFor - finalGoalsAgainst;
 
     return {
@@ -632,7 +692,7 @@ export function computeAcademyStandings(
     };
   });
 
-  // 5. Sort: Points DESC, GoalDiff DESC, GoalsFor DESC, Won DESC, Name ASC
+  // 5. Official Sort: Points DESC, GoalDiff DESC, GoalsFor DESC, Won DESC, Name ASC
   computed.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.goalDiff !== a.goalDiff) return b.goalDiff - a.goalDiff;
@@ -645,32 +705,77 @@ export function computeAcademyStandings(
 }
 
 /**
- * Persist computed standings across all academies to localStorage & Firestore
+ * Persist computed standings across all academies to localStorage & Firestore,
+ * ensuring each category has its own audited standings and stats breakdown.
  */
 export async function syncAcademyStandingsToStorage(
   academies: Academy[],
   matches: TournamentMatch[]
 ): Promise<Academy[]> {
-  const standings = computeAcademyStandings(academies, matches, 'all');
-  const updated: Academy[] = standings.map(s => ({
-    id: s.id,
-    name: s.name,
-    acronym: s.acronym,
-    logo: s.logo,
-    city: s.city,
-    coach: s.coach,
-    category: s.category,
-    categories: s.categories,
-    played: s.played,
-    won: s.won,
-    drawn: s.drawn,
-    lost: s.lost,
-    goalsFor: s.goalsFor,
-    goalsAgainst: s.goalsAgainst,
-    points: s.points,
-    foundationYear: s.foundationYear,
-    primaryColor: s.primaryColor
-  }));
+  // 1. Compute category-specific standings for each tournament category
+  const categoryStandingsMap: Record<string, Map<string, ComputedStandingsAcademy>> = {};
+  for (const cat of TOURNAMENT_CATEGORIES) {
+    const list = computeAcademyStandings(academies, matches, cat);
+    const map = new Map<string, ComputedStandingsAcademy>();
+    list.forEach(item => map.set(item.id, item));
+    categoryStandingsMap[cat] = map;
+  }
+
+  // 2. Compute overall standings
+  const overallStandings = computeAcademyStandings(academies, matches, 'all');
+  const overallMap = new Map<string, ComputedStandingsAcademy>();
+  overallStandings.forEach(item => overallMap.set(item.id, item));
+
+  // 3. Update academies with separated per-category stats
+  const updated: Academy[] = academies.map(acad => {
+    const overall = overallMap.get(acad.id);
+
+    const categoryStats: Record<string, {
+      played: number;
+      won: number;
+      drawn: number;
+      lost: number;
+      goalsFor: number;
+      goalsAgainst: number;
+      points: number;
+    }> = {};
+
+    for (const cat of TOURNAMENT_CATEGORIES) {
+      const catData = categoryStandingsMap[cat]?.get(acad.id);
+      if (catData) {
+        categoryStats[cat] = {
+          played: catData.played,
+          won: catData.won,
+          drawn: catData.drawn,
+          lost: catData.lost,
+          goalsFor: catData.goalsFor,
+          goalsAgainst: catData.goalsAgainst,
+          points: catData.points
+        };
+      }
+    }
+
+    return {
+      id: acad.id,
+      name: acad.name,
+      acronym: acad.acronym,
+      logo: acad.logo,
+      city: acad.city,
+      coach: acad.coach,
+      category: acad.category,
+      categories: acad.categories,
+      played: overall?.played ?? (acad.played || 0),
+      won: overall?.won ?? (acad.won || 0),
+      drawn: overall?.drawn ?? (acad.drawn || 0),
+      lost: overall?.lost ?? (acad.lost || 0),
+      goalsFor: overall?.goalsFor ?? (acad.goalsFor || 0),
+      goalsAgainst: overall?.goalsAgainst ?? (acad.goalsAgainst || 0),
+      points: overall?.points ?? (acad.points || 0),
+      foundationYear: acad.foundationYear,
+      primaryColor: acad.primaryColor,
+      categoryStats
+    };
+  });
 
   setItem(KEYS.ACADEMIES, updated);
 

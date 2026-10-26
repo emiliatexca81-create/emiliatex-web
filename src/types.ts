@@ -125,6 +125,15 @@ export interface Academy {
   points: number;
   foundationYear?: string;
   primaryColor?: string;
+  categoryStats?: Record<string, {
+    played: number;
+    won: number;
+    drawn: number;
+    lost: number;
+    goalsFor: number;
+    goalsAgainst: number;
+    points: number;
+  }>;
 }
 
 export type OrderStatus = 'pending' | 'in_production' | 'shipped' | 'delivered' | 'cancelled';

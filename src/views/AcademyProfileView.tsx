@@ -23,7 +23,7 @@ import {
   Sparkles,
   X
 } from 'lucide-react';
-import { formatMatchTime } from '../services/storage';
+import { formatMatchTime, computeAcademyStandings } from '../services/storage';
 
 interface AcademyProfileViewProps {
   academy: Academy;
@@ -109,6 +109,48 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
       m.awayAcademyName === academy.name
     );
   }, [matches, academy]);
+
+  // Dynamic official stats for this academy according to the selected category (never mixes categories)
+  const currentCategoryStats = useMemo(() => {
+    if (selectedCategory !== 'all') {
+      const catStandings = computeAcademyStandings([academy], matches, selectedCategory);
+      const item = catStandings.find(s => s.id === academy.id);
+      if (item) {
+        return {
+          played: item.played,
+          won: item.won,
+          drawn: item.drawn,
+          lost: item.lost,
+          goalsFor: item.goalsFor,
+          goalsAgainst: item.goalsAgainst,
+          points: item.points,
+          label: `Categoría ${selectedCategory}`
+        };
+      }
+      return {
+        played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        points: 0,
+        label: `Categoría ${selectedCategory}`
+      };
+    }
+
+    const overall = computeAcademyStandings([academy], matches, 'all')[0];
+    return {
+      played: overall?.played ?? (academy.played || 0),
+      won: overall?.won ?? (academy.won || 0),
+      drawn: overall?.drawn ?? (academy.drawn || 0),
+      lost: overall?.lost ?? (academy.lost || 0),
+      goalsFor: overall?.goalsFor ?? (academy.goalsFor || 0),
+      goalsAgainst: overall?.goalsAgainst ?? (academy.goalsAgainst || 0),
+      points: overall?.points ?? (academy.points || 0),
+      label: 'Torneo Global'
+    };
+  }, [academy, matches, selectedCategory]);
 
   // Share profile handler
   const handleShare = () => {
@@ -246,39 +288,41 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
             </div>
           </div>
 
-          {/* Official Standings Quick Strip */}
+          {/* Official Standings Quick Strip (Isolated by Selected Category) */}
           <div className="w-full md:w-auto shrink-0 bg-black/40 rounded-3xl p-4 sm:p-5 border border-white/10 space-y-3 backdrop-blur-md">
             <div className="text-center md:text-right">
-              <span className="text-[11px] text-slate-400 uppercase font-bold tracking-wider block">Puntaje en Torneo</span>
+              <span className="text-[11px] text-slate-400 uppercase font-bold tracking-wider block">
+                Puntaje • <strong className="text-amber-300 font-mono">{currentCategoryStats.label}</strong>
+              </span>
               <div className="flex items-baseline justify-center md:justify-end gap-1.5">
-                <span className="text-3xl sm:text-4xl font-black font-cinzel text-amber-300">{academy.points}</span>
+                <span className="text-3xl sm:text-4xl font-black font-cinzel text-amber-300">{currentCategoryStats.points}</span>
                 <span className="text-xs font-bold text-amber-400/80">PTS</span>
               </div>
             </div>
 
             <div className="grid grid-cols-4 gap-2 text-center text-xs pt-2 border-t border-white/10">
               <div className="p-1.5 rounded-xl neu-pressed">
-                <span className="block font-black text-white font-mono">{academy.played}</span>
+                <span className="block font-black text-white font-mono">{currentCategoryStats.played}</span>
                 <span className="text-[9px] text-slate-400 uppercase font-bold">PJ</span>
               </div>
               <div className="p-1.5 rounded-xl neu-pressed">
-                <span className="block font-black text-emerald-400 font-mono">{academy.won}</span>
+                <span className="block font-black text-emerald-400 font-mono">{currentCategoryStats.won}</span>
                 <span className="text-[9px] text-slate-400 uppercase font-bold">PG</span>
               </div>
               <div className="p-1.5 rounded-xl neu-pressed">
-                <span className="block font-black text-amber-400 font-mono">{academy.drawn}</span>
+                <span className="block font-black text-amber-400 font-mono">{currentCategoryStats.drawn}</span>
                 <span className="text-[9px] text-slate-400 uppercase font-bold">PE</span>
               </div>
               <div className="p-1.5 rounded-xl neu-pressed">
-                <span className="block font-black text-rose-400 font-mono">{academy.lost}</span>
+                <span className="block font-black text-rose-400 font-mono">{currentCategoryStats.lost}</span>
                 <span className="text-[9px] text-slate-400 uppercase font-bold">PP</span>
               </div>
             </div>
 
             <div className="flex justify-between items-center text-[11px] text-slate-400 px-1 pt-1 font-mono">
-              <span>Goles: <strong className="text-white">{academy.goalsFor}</strong> / <strong className="text-rose-300">{academy.goalsAgainst}</strong></span>
-              <span>DIF: <strong className={academy.goalsFor - academy.goalsAgainst >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                {academy.goalsFor - academy.goalsAgainst > 0 ? `+${academy.goalsFor - academy.goalsAgainst}` : academy.goalsFor - academy.goalsAgainst}
+              <span>Goles: <strong className="text-white">{currentCategoryStats.goalsFor}</strong> / <strong className="text-rose-300">{currentCategoryStats.goalsAgainst}</strong></span>
+              <span>DIF: <strong className={currentCategoryStats.goalsFor - currentCategoryStats.goalsAgainst >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                {currentCategoryStats.goalsFor - currentCategoryStats.goalsAgainst > 0 ? `+${currentCategoryStats.goalsFor - currentCategoryStats.goalsAgainst}` : currentCategoryStats.goalsFor - currentCategoryStats.goalsAgainst}
               </strong></span>
             </div>
           </div>
