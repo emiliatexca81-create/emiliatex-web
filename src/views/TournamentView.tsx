@@ -2,9 +2,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage } from '../types';
 import { NavPage } from '../components/Navbar';
-import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink } from 'lucide-react';
+import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink, FileText } from 'lucide-react';
 import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas, formatMatchTime } from '../services/storage';
 import { AcademyProfileView } from './AcademyProfileView';
+import { ExportPdfModal } from '../components/ExportPdfModal';
 
 interface TournamentViewProps {
   matches: TournamentMatch[];
@@ -45,6 +46,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   // Standings state
   const [standingsCategory, setStandingsCategory] = useState<'all' | TournamentCategory>('all');
   const [isUpdatingStandings, setIsUpdatingStandings] = useState<boolean>(false);
+  const [isExportPdfOpen, setIsExportPdfOpen] = useState<boolean>(false);
 
   // Match filters state
   const availableJornadas = useMemo(() => getAvailableJornadas(matches), [matches]);
@@ -541,6 +543,16 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           <span className="sm:hidden">Clubes ({academies.length})</span>
           <span className="hidden sm:inline">Academias ({academies.length})</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setIsExportPdfOpen(true)}
+          className="flex items-center justify-center sm:justify-start gap-2 px-3.5 sm:px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black neu-btn-gold text-black shadow-md cursor-pointer ml-auto hover:brightness-110 active:scale-95 transition-all border border-[#D4AF37]"
+          title="Exportar reporte oficial en PDF con tablas de posiciones por categoría, historial jornada a jornada y matriz anti-repetición de rivales"
+        >
+          <FileText className="w-4 h-4 text-black" />
+          <span>Exportar PDF</span>
+        </button>
       </div>
 
       {/* TAB 1: STANDINGS TABLES DIVIDED BY CATEGORY */}
@@ -564,8 +576,17 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 </p>
               </div>
             </div>
-
-            <div className="flex items-center gap-2">
+            
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setIsExportPdfOpen(true)}
+                className="px-3.5 py-1.5 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer"
+                title="Exportar todas las tablas y cruces en PDF oficial"
+              >
+                <FileText className="w-3.5 h-3.5 text-black" />
+                <span>Exportar en PDF</span>
+              </button>
               <span className="px-3.5 py-1.5 rounded-xl neu-pressed text-amber-300 text-xs font-mono font-bold">
                 Victoria: 3 pts • Empate: 1 pt
               </span>
@@ -1457,6 +1478,15 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL OFICIAL PARA EXPORTAR HISTORIAL Y CRUCES EN PDF */}
+      <ExportPdfModal
+        isOpen={isExportPdfOpen}
+        onClose={() => setIsExportPdfOpen(false)}
+        matches={matches}
+        academies={academies}
+        defaultCategory={standingsCategory !== 'all' ? standingsCategory : 'all'}
+      />
 
     </div>
   );

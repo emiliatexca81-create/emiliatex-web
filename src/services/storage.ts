@@ -471,9 +471,13 @@ export function normalizeTeamName(name?: string): string {
 /**
  * Normalizes category strings (e.g., 'Sub-15', 'Sub 15', 'sub-15' -> 'sub-15')
  */
-export function normalizeCategory(cat?: string): string {
+export function normalizeCategory(cat?: any): string {
   if (!cat) return '';
-  return cat.trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (Array.isArray(cat)) {
+    return cat.length > 0 ? normalizeCategory(cat[0]) : '';
+  }
+  const str = typeof cat === 'string' ? cat : String(cat);
+  return str.trim().toLowerCase().replace(/[\s_]+/g, '-');
 }
 
 /**

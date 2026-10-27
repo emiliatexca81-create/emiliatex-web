@@ -68,7 +68,9 @@ import {
   EyeOff,
   Key,
   Filter,
-  Camera
+  Camera,
+  FileText,
+  Printer
 } from 'lucide-react';
 import { 
   saveProduct, 
@@ -115,6 +117,7 @@ import {
   StorageUploadProgress 
 } from '../services/firebase';
 import { MatchLineupModal } from '../components/MatchLineupModal';
+import { ExportPdfModal } from '../components/ExportPdfModal';
 
 export const DEFAULT_ACADEMY_CATEGORIES: TournamentCategory[] = [
   'Sub-7',
@@ -339,6 +342,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   } | null>(null);
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [isSavingAcademy, setIsSavingAcademy] = useState(false);
+  const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
 
   // In-App Toast Notification (solves alert() blocked in iframe)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -1383,6 +1387,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
           )}
 
           <button
+            type="button"
+            onClick={() => setIsExportPdfOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-lg border border-[#D4AF37]"
+            title="Exportar reporte oficial en PDF con historial jornada a jornada y matriz de rivales pendientes para no repetir cruces"
+          >
+            <FileText className="w-4 h-4 text-black" />
+            <span>Exportar Cruces PDF</span>
+          </button>
+          <button
             onClick={handleSyncFirestore}
             disabled={syncingFirestore}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl neu-btn-dark text-amber-300 hover:text-white text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-md"
@@ -1434,12 +1447,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </p>
               </div>
               <span className="text-xs text-amber-300 font-mono neu-pressed px-3.5 py-1.5 rounded-full self-start sm:self-auto border border-[#D4AF37]/30 font-bold">
-                7 Módulos Nativos
+                8 Herramientas de Gestión
               </span>
             </div>
 
-            {/* 7 Big Native APK Action Buttons with High-Impact Embossed Icons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-4 sm:gap-5">
+            {/* 8 Big Native APK Action Buttons with High-Impact Embossed Icons */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
               
               {/* Card 1: Catálogo */}
               <div 
@@ -1611,6 +1624,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </p>
                     <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-amber-300 font-bold border border-[#D4AF37]/30">
                       {clientWorksList.length} fotos
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 8: Exportar Cruces & Historial en PDF */}
+              <div 
+                onClick={() => setIsExportPdfOpen(true)}
+                className="group relative flex flex-col justify-between p-6 rounded-3xl neu-card-gold border-amber-400/50 hover:border-amber-400 transition-all cursor-pointer active:scale-[0.97] shadow-xl hover:shadow-[0_10px_30px_rgba(212,175,55,0.3)] bg-gradient-to-b from-[#1b1c2b] to-[#11121c]"
+              >
+                <div>
+                  {/* Big Embossed APK Icon Bubble */}
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl mx-auto flex items-center justify-center mb-4 neu-pressed text-[#D4AF37] group-hover:scale-105 group-hover:bg-[#D4AF37] group-hover:text-black transition-all shadow-inner border border-[#D4AF37]/50">
+                    <FileText className="w-9 h-9 sm:w-11 sm:h-11" />
+                  </div>
+                  
+                  <div className="text-center">
+                    <h3 className="font-black text-lg text-white tracking-wide font-cinzel group-hover:text-amber-300 transition-colors">
+                      Exportar PDF
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                      Historial jornada a jornada y matriz anti-repetición de rivales por categoría.
+                    </p>
+                    <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-amber-300 font-bold border border-[#D4AF37]/30">
+                      Reporte Oficial
                     </span>
                   </div>
                 </div>
@@ -2510,25 +2548,35 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <span className="w-2.5 h-2.5 rounded-full bg-[#D4AF37]" />
                 <span>Partidos del Torneo ({matches.length})</span>
               </h4>
-
-              {matches.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => {
-                    setConfirmDeleteModal({
-                      type: 'all_matches',
-                      id: 'all',
-                      name: `Todos los ${matches.length} partidos`,
-                      extraInfo: 'Se eliminarán definitivamente todos los partidos predeterminados y actuales. Podrás crear tus propios partidos desde cero.'
-                    });
-                  }}
-                  className="px-3.5 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-bold border border-red-500/30 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-                  title="Eliminar de forma definitiva todos los partidos existentes"
+                  onClick={() => setIsExportPdfOpen(true)}
+                  className="px-3.5 py-1.5 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer"
+                  title="Exportar reporte oficial en PDF con historial jornada a jornada y matriz de rivales pendientes para no repetir cruces"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                  <span>Limpiar / Eliminar Todos los Partidos</span>
+                  <FileText className="w-3.5 h-3.5 text-black" />
+                  <span>Exportar Cruces en PDF</span>
                 </button>
-              )}
+                {matches.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmDeleteModal({
+                        type: 'all_matches',
+                        id: 'all',
+                        name: `Todos los ${matches.length} partidos`,
+                        extraInfo: 'Se eliminarán definitivamente todos los partidos predeterminados y actuales. Podrás crear tus propios partidos desde cero.'
+                      });
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-bold border border-red-500/30 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                    title="Eliminar de forma definitiva todos los partidos existentes"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    <span>Limpiar / Eliminar Todos los Partidos</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Panel de Control Oficial de Jornadas y Suma de Puntos a las Tablas por Categoría */}
@@ -5261,6 +5309,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
           onSave={handleSaveLineupsFromModal}
         />
       )}
+
+      {/* MODAL OFICIAL PARA EXPORTAR HISTORIAL Y CRUCES EN PDF */}
+      <ExportPdfModal
+        isOpen={isExportPdfOpen}
+        onClose={() => setIsExportPdfOpen(false)}
+        matches={matches}
+        academies={academies}
+        defaultCategory={adminMatchCategoryFilter !== 'all' ? adminMatchCategoryFilter : 'all'}
+        onToast={showToast}
+      />
 
       {/* CONFIRM DELETE MODAL (In-app modal replacing unreliable native confirm) */}
       {confirmDeleteModal && (
