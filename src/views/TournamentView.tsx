@@ -2,10 +2,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage } from '../types';
 import { NavPage } from '../components/Navbar';
-import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink, FileText } from 'lucide-react';
+import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink, FileText, Printer } from 'lucide-react';
 import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas, formatMatchTime } from '../services/storage';
 import { AcademyProfileView } from './AcademyProfileView';
 import { ExportPdfModal } from '../components/ExportPdfModal';
+import { ExportMatchdayPdfModal } from '../components/ExportMatchdayPdfModal';
 
 interface TournamentViewProps {
   matches: TournamentMatch[];
@@ -47,6 +48,8 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   const [standingsCategory, setStandingsCategory] = useState<'all' | TournamentCategory>('all');
   const [isUpdatingStandings, setIsUpdatingStandings] = useState<boolean>(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState<boolean>(false);
+  const [isExportMatchdayPdfOpen, setIsExportMatchdayPdfOpen] = useState<boolean>(false);
+  const [exportMatchdayJornada, setExportMatchdayJornada] = useState<string>('Jornada 1');
 
   // Match filters state
   const availableJornadas = useMemo(() => getAvailableJornadas(matches), [matches]);
@@ -544,15 +547,32 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           <span className="hidden sm:inline">Academias ({academies.length})</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setIsExportPdfOpen(true)}
-          className="flex items-center justify-center sm:justify-start gap-2 px-3.5 sm:px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black neu-btn-gold text-black shadow-md cursor-pointer ml-auto hover:brightness-110 active:scale-95 transition-all border border-[#D4AF37]"
-          title="Exportar reporte oficial en PDF con tablas de posiciones por categoría, historial jornada a jornada y matriz anti-repetición de rivales"
-        >
-          <FileText className="w-4 h-4 text-black" />
-          <span>Exportar PDF</span>
-        </button>
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setExportMatchdayJornada(matchJornadaFilter === 'all' ? (availableJornadas[0] || 'Jornada 1') : matchJornadaFilter);
+              setIsExportMatchdayPdfOpen(true);
+            }}
+            className="flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-2xl text-xs sm:text-sm font-black neu-btn-gold text-black shadow-md cursor-pointer hover:brightness-110 active:scale-95 transition-all border border-[#D4AF37]"
+            title="Exportar Planilla de Campo / Partidos de la Jornada en PDF para llevar a la cancha"
+          >
+            <Printer className="w-4 h-4 text-black" />
+            <span className="hidden sm:inline">Planilla Cancha (PDF)</span>
+            <span className="sm:hidden">Cancha PDF</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsExportPdfOpen(true)}
+            className="flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-2xl text-xs sm:text-sm font-black neu-btn-gold text-black shadow-md cursor-pointer hover:brightness-110 active:scale-95 transition-all border border-[#D4AF37]"
+            title="Exportar reporte oficial en PDF con tablas de posiciones por categoría, historial jornada a jornada y matriz anti-repetición de rivales"
+          >
+            <FileText className="w-4 h-4 text-black" />
+            <span className="hidden sm:inline">Exportar Cruces PDF</span>
+            <span className="sm:hidden">Cruces PDF</span>
+          </button>
+        </div>
       </div>
 
       {/* TAB 1: STANDINGS TABLES DIVIDED BY CATEGORY */}
@@ -670,8 +690,22 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 </div>
               </div>
 
-              {/* Quick Prev / Next Jornada Navigation Controls */}
-              {availableJornadas.length > 1 && (
+              <div className="flex items-center gap-2 shrink-0 self-start md:self-auto flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExportMatchdayJornada(matchJornadaFilter === 'all' ? (availableJornadas[0] || 'Jornada 1') : matchJornadaFilter);
+                    setIsExportMatchdayPdfOpen(true);
+                  }}
+                  className="px-3.5 py-2 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer border border-[#D4AF37]"
+                  title="Descargar o imprimir planilla de cancha y partidos de la jornada en PDF para llevar a la cancha"
+                >
+                  <Printer className="w-4 h-4 text-black" />
+                  <span>Planilla Cancha (PDF)</span>
+                </button>
+
+                {/* Quick Prev / Next Jornada Navigation Controls */}
+                {availableJornadas.length > 1 && (
                 <div className="flex items-center gap-2 shrink-0 self-start md:self-auto">
                   {(() => {
                     const curIdx = availableJornadas.indexOf(matchJornadaFilter);
@@ -724,6 +758,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 </div>
               )}
             </div>
+          </div>
 
             {/* Jornada Pill Carousel / Dock */}
             <div className="space-y-2">
@@ -1486,6 +1521,17 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         matches={matches}
         academies={academies}
         defaultCategory={standingsCategory !== 'all' ? standingsCategory : 'all'}
+      />
+
+      {/* MODAL OFICIAL PARA EXPORTAR PLANILLA DE CANCHA Y JORNADA EN PDF */}
+      <ExportMatchdayPdfModal
+        isOpen={isExportMatchdayPdfOpen}
+        onClose={() => setIsExportMatchdayPdfOpen(false)}
+        matches={matches}
+        academies={academies}
+        players={players}
+        defaultJornada={exportMatchdayJornada}
+        defaultCategory={matchCategoryFilter !== 'all' ? matchCategoryFilter : 'all'}
       />
 
     </div>

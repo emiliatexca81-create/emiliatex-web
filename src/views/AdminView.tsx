@@ -118,6 +118,7 @@ import {
 } from '../services/firebase';
 import { MatchLineupModal } from '../components/MatchLineupModal';
 import { ExportPdfModal } from '../components/ExportPdfModal';
+import { ExportMatchdayPdfModal } from '../components/ExportMatchdayPdfModal';
 
 export const DEFAULT_ACADEMY_CATEGORIES: TournamentCategory[] = [
   'Sub-7',
@@ -343,6 +344,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [isSavingAcademy, setIsSavingAcademy] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
+  const [isExportMatchdayPdfOpen, setIsExportMatchdayPdfOpen] = useState(false);
+  const [exportMatchdayDefaultJornada, setExportMatchdayDefaultJornada] = useState<string>('Jornada 1');
 
   // In-App Toast Notification (solves alert() blocked in iframe)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -1396,6 +1399,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <span>Exportar Cruces PDF</span>
           </button>
           <button
+            type="button"
+            onClick={() => {
+              setExportMatchdayDefaultJornada(adminMatchJornadaFilter !== 'all' ? adminMatchJornadaFilter : (availableMatchJornadas[0] || 'Jornada 1'));
+              setIsExportMatchdayPdfOpen(true);
+            }}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-lg border border-[#D4AF37]"
+            title="Exportar Planilla de Campo / Partidos de la Jornada en PDF para llevar a la cancha e imprimir"
+          >
+            <Printer className="w-4 h-4 text-black" />
+            <span>Planilla Cancha (PDF)</span>
+          </button>
+          <button
             onClick={handleSyncFirestore}
             disabled={syncingFirestore}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl neu-btn-dark text-amber-300 hover:text-white text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-md"
@@ -1642,13 +1657,41 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   
                   <div className="text-center">
                     <h3 className="font-black text-lg text-white tracking-wide font-cinzel group-hover:text-amber-300 transition-colors">
-                      Exportar PDF
+                      Exportar Cruces
                     </h3>
                     <p className="text-xs text-slate-400 mt-1 line-clamp-2">
                       Historial jornada a jornada y matriz anti-repetición de rivales por categoría.
                     </p>
                     <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-amber-300 font-bold border border-[#D4AF37]/30">
                       Reporte Oficial
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 9: Planilla de Cancha & Partidos de la Jornada */}
+              <div 
+                onClick={() => {
+                  setExportMatchdayDefaultJornada(adminMatchJornadaFilter !== 'all' ? adminMatchJornadaFilter : (availableMatchJornadas[0] || 'Jornada 1'));
+                  setIsExportMatchdayPdfOpen(true);
+                }}
+                className="group relative flex flex-col justify-between p-6 rounded-3xl neu-card-gold border-amber-400/50 hover:border-amber-400 transition-all cursor-pointer active:scale-[0.97] shadow-xl hover:shadow-[0_10px_30px_rgba(212,175,55,0.3)] bg-gradient-to-b from-[#1b1c2b] to-[#11121c]"
+              >
+                <div>
+                  {/* Big Embossed APK Icon Bubble */}
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl mx-auto flex items-center justify-center mb-4 neu-pressed text-[#D4AF37] group-hover:scale-105 group-hover:bg-[#D4AF37] group-hover:text-black transition-all shadow-inner border border-[#D4AF37]/50">
+                    <Printer className="w-9 h-9 sm:w-11 sm:h-11" />
+                  </div>
+                  
+                  <div className="text-center">
+                    <h3 className="font-black text-lg text-white tracking-wide font-cinzel group-hover:text-amber-300 transition-colors">
+                      Planilla Cancha
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                      Actas oficiales de arbitraje, nóminas y cartelera de la jornada para llevar a la cancha.
+                    </p>
+                    <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-amber-300 font-bold border border-[#D4AF37]/30">
+                      Actas & Cronograma
                     </span>
                   </div>
                 </div>
@@ -2621,7 +2664,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       title="Recalcula desde cero todos los puntos de las tablas por categoría y quiniela según marcadores"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isRecalculatingQuinielas ? 'animate-spin text-amber-400' : ''}`} />
-                      <span>{isRecalculatingQuinielas ? 'Recalculando...' : 'Recalcular Tabla y Quiniela'}</span>
+                      <span>{isRecalculatingQuinielas ? 'Recalculando...' : 'Recalcular'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetJ = adminMatchJornadaFilter === 'all' ? (availableMatchJornadas[0] || 'Jornada 1') : adminMatchJornadaFilter;
+                        setExportMatchdayDefaultJornada(targetJ);
+                        setIsExportMatchdayPdfOpen(true);
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl neu-btn-gold text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer border border-[#D4AF37]"
+                      title="Exportar en PDF la planilla de campo y actas de arbitraje de la jornada para llevar a la cancha"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-black" />
+                      <span>Planilla Cancha (PDF)</span>
                     </button>
                   </div>
                 </div>
@@ -5316,6 +5373,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
         onClose={() => setIsExportPdfOpen(false)}
         matches={matches}
         academies={academies}
+        defaultCategory={adminMatchCategoryFilter !== 'all' ? adminMatchCategoryFilter : 'all'}
+        onToast={showToast}
+      />
+
+      {/* MODAL OFICIAL PARA EXPORTAR PLANILLA DE CANCHA Y JORNADA EN PDF */}
+      <ExportMatchdayPdfModal
+        isOpen={isExportMatchdayPdfOpen}
+        onClose={() => setIsExportMatchdayPdfOpen(false)}
+        matches={matches}
+        academies={academies}
+        players={players}
+        defaultJornada={exportMatchdayDefaultJornada}
         defaultCategory={adminMatchCategoryFilter !== 'all' ? adminMatchCategoryFilter : 'all'}
         onToast={showToast}
       />
