@@ -18,6 +18,37 @@ app.get(['/health', '/api/health'], (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Image Proxy to bypass external CORS limitations for PDF generation and exporting
+app.get('/api/image-proxy', async (req, res) => {
+  try {
+    const targetUrl = req.query.url as string;
+    if (!targetUrl || !targetUrl.startsWith('http')) {
+      return res.status(400).json({ error: 'Valid image URL is required' });
+    }
+
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; EmiliatexPdfBot/1.0)'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Failed to fetch upstream image' });
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/png';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err: any) {
+    console.error('Error in /api/image-proxy:', err);
+    res.status(500).json({ error: 'Internal image proxy error', details: err?.message });
+  }
+});
+
 // Serve static assets from built Vite directory
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath, {

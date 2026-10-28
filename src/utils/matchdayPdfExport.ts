@@ -61,22 +61,74 @@ function runAutoTable(doc: any, options: any): void {
 
 /**
  * Robust asynchronous image preloader and Base64 converter for jsPDF.
- * Uses an offscreen HTMLCanvasElement with crossOrigin anonymous.
- * Handles PNG, JPEG, SVG and WebP images.
+ * Uses a 3-tier fallback strategy:
+ * Tier 1: Same-origin /api/image-proxy (bypasses browser CORS & canvas tainting)
+ * Tier 2: Direct fetch() with blob conversion
+ * Tier 3: Offscreen HTMLCanvasElement with cache-busting
  */
 async function loadAndConvertImageToBase64(url?: string): Promise<string | null> {
   if (!url || typeof url !== 'string' || !url.trim()) return null;
   const cleanUrl = url.trim();
   if (cleanUrl.startsWith('data:image/')) return cleanUrl;
 
+  // Tier 1: Fetch via local proxy endpoint to bypass CORS entirely
+  try {
+    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(cleanUrl)}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(proxyUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob && blob.size > 0) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        if (dataUrl && dataUrl.startsWith('data:image/')) {
+          return dataUrl;
+        }
+      }
+    }
+  } catch (err) {
+    // proxy failed or not active, fallback to direct fetch/canvas
+  }
+
+  // Tier 2: Direct fetch (in case external CDN allows CORS directly)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(cleanUrl, { mode: 'cors', signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob && blob.size > 0) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        if (dataUrl && dataUrl.startsWith('data:image/')) {
+          return dataUrl;
+        }
+      }
+    }
+  } catch (err) {
+    // direct fetch failed
+  }
+
+  // Tier 3: Offscreen Image element + Canvas with cache-busting timestamp
   try {
     return await new Promise<string | null>((resolve) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      
-      const timer = setTimeout(() => {
-        resolve(null);
-      }, 3000); // 3 seconds timeout
+
+      const timer = setTimeout(() => resolve(null), 3500);
 
       img.onload = () => {
         clearTimeout(timer);
@@ -85,7 +137,7 @@ async function loadAndConvertImageToBase64(url?: string): Promise<string | null>
           const maxDim = 250;
           let w = img.naturalWidth || img.width || 120;
           let h = img.naturalHeight || img.height || 120;
-          
+
           if (w > maxDim || h > maxDim) {
             if (w > h) {
               h = Math.round((h * maxDim) / w);
@@ -95,7 +147,7 @@ async function loadAndConvertImageToBase64(url?: string): Promise<string | null>
               h = maxDim;
             }
           }
-          
+
           canvas.width = Math.max(w, 1);
           canvas.height = Math.max(h, 1);
           const ctx = canvas.getContext('2d');
@@ -107,7 +159,7 @@ async function loadAndConvertImageToBase64(url?: string): Promise<string | null>
           const dataUrl = canvas.toDataURL('image/png');
           resolve(dataUrl);
         } catch (err) {
-          console.warn('CORS/Canvas export fallback for image:', cleanUrl, err);
+          console.warn('Canvas export tainted for image:', cleanUrl, err);
           resolve(null);
         }
       };
@@ -117,7 +169,13 @@ async function loadAndConvertImageToBase64(url?: string): Promise<string | null>
         resolve(null);
       };
 
-      img.src = cleanUrl;
+      // Cache buster prevents browser from reusing non-CORS cached responses
+      if (cleanUrl.startsWith('http')) {
+        const sep = cleanUrl.includes('?') ? '&' : '?';
+        img.src = `${cleanUrl}${sep}_pdf_cb=${Date.now()}`;
+      } else {
+        img.src = cleanUrl;
+      }
     });
   } catch (err) {
     console.warn('Error loading image for PDF:', err);
@@ -128,7 +186,7 @@ async function loadAndConvertImageToBase64(url?: string): Promise<string | null>
 /**
  * Draw a team shield / crest badge onto the jsPDF document.
  * If image is available, renders it with a gold-bordered backing card.
- * If image is not available or CORS fails, renders a sharp vector monogram crest.
+ * If image is not available, renders an official vector monogram crest.
  */
 function drawTeamShieldBadge(
   doc: any,
@@ -141,21 +199,28 @@ function drawTeamShieldBadge(
 ): void {
   // Circular or rounded rectangular card background
   doc.setFillColor(255, 255, 255);
-  doc.roundedRect(x, y, size, size, 3, 3, 'F');
-  
+  doc.roundedRect(x, y, size, size, 2.5, 2.5, 'F');
+
   // Gold accent border
   doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2]);
   doc.setLineWidth(0.65);
-  doc.roundedRect(x, y, size, size, 3, 3, 'S');
+  doc.roundedRect(x, y, size, size, 2.5, 2.5, 'S');
 
   let renderedImage = false;
   if (logoBase64) {
     try {
-      const pad = 1.2;
+      let fmt = 'PNG';
+      if (logoBase64.startsWith('data:image/jpeg') || logoBase64.startsWith('data:image/jpg')) {
+        fmt = 'JPEG';
+      } else if (logoBase64.startsWith('data:image/webp')) {
+        fmt = 'WEBP';
+      }
+
+      const pad = 1.0;
       const innerSize = size - (pad * 2);
       doc.addImage(
         logoBase64,
-        'PNG',
+        fmt,
         x + pad,
         y + pad,
         innerSize,
@@ -176,7 +241,7 @@ function drawTeamShieldBadge(
     doc.roundedRect(x + 1.2, y + 1.2, size - 2.4, size - 2.4, 2, 2, 'F');
     doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
     doc.setFont('helvetica', 'bold');
-    
+
     const initials = teamName
       .replace(/^(club|academia|deportivo|atletico|escuela)\s+/i, '')
       .split(' ')
@@ -185,11 +250,11 @@ function drawTeamShieldBadge(
       .map(w => w[0].toUpperCase())
       .join('');
 
-    doc.setFontSize(size > 16 ? 9 : 7);
+    doc.setFontSize(size > 16 ? 9 : (size > 10 ? 7 : 5.5));
     doc.text(
       initials || teamName.slice(0, 3).toUpperCase(),
       x + (size / 2),
-      y + (size / 2) + (size > 16 ? 3 : 2.5),
+      y + (size / 2) + (size > 16 ? 3 : (size > 10 ? 2.5 : 2)),
       { align: 'center' }
     );
   }
@@ -293,7 +358,7 @@ function getTeamRosterForMatch(
 
 /**
  * Generate official Matchday PDF for field use (Planilla de Campo / Partidos de la Jornada)
- * Includes official team crests/escudos on each match sheet!
+ * Renders team crests on every match sheet, in the scoreboard hero box, and on the roster technical tables!
  */
 export async function generateMatchdayPDF(
   allMatches: TournamentMatch[],
@@ -323,8 +388,14 @@ export async function generateMatchdayPDF(
   }
 
   matches.forEach(m => {
-    const homeAcad = (allAcademies || []).find(a => a.id === m.homeAcademyId || a.name === m.homeAcademyName);
-    const awayAcad = (allAcademies || []).find(a => a.id === m.awayAcademyId || a.name === m.awayAcademyName);
+    const homeAcad = (allAcademies || []).find(a => 
+      (a.id && m.homeAcademyId && a.id === m.homeAcademyId) ||
+      (a.name && m.homeAcademyName && a.name.trim().toLowerCase() === m.homeAcademyName.trim().toLowerCase())
+    );
+    const awayAcad = (allAcademies || []).find(a => 
+      (a.id && m.awayAcademyId && a.id === m.awayAcademyId) ||
+      (a.name && m.awayAcademyName && a.name.trim().toLowerCase() === m.awayAcademyName.trim().toLowerCase())
+    );
     const hLogo = m.homeLogo || homeAcad?.logo;
     const aLogo = m.awayLogo || awayAcad?.logo;
     if (hLogo) urlsToFetch.add(hLogo);
@@ -352,7 +423,6 @@ export async function generateMatchdayPDF(
 
   // Official color palette for field-print readability
   const primaryNavy: Color = [13, 20, 36];
-  const goldHeader: Color = [212, 175, 55];
   const goldAccent: [number, number, number] = [212, 175, 55];
 
   const jornadaLabel = jornada === 'all' ? 'Todas las Jornadas' : jornada;
@@ -381,7 +451,8 @@ export async function generateMatchdayPDF(
         doc.setDrawColor(212, 175, 55);
         doc.setLineWidth(0.4);
         doc.roundedRect(marginX + 5, 15, 17, 17, 2, 2, 'S');
-        doc.addImage(compLogoBase64, 'PNG', marginX + 6, 16, 15, 15, undefined, 'FAST');
+        let fmt = compLogoBase64.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+        doc.addImage(compLogoBase64, fmt, marginX + 6, 16, 15, 15, undefined, 'FAST');
         headerTextX = marginX + 26;
       } catch (e) {
         headerTextX = marginX + 6;
@@ -546,9 +617,15 @@ export async function generateMatchdayPDF(
       const matchStadium = m.stadium || 'Cancha Principal';
       const refereeName = m.referee ? m.referee : 'Por designar';
 
-      // Rescatar escudo del equipo local y visitante
-      const homeAcad = (allAcademies || []).find(a => a.id === m.homeAcademyId || a.name === m.homeAcademyName);
-      const awayAcad = (allAcademies || []).find(a => a.id === m.awayAcademyId || a.name === m.awayAcademyName);
+      // Rescatar escudo del equipo local y visitante con fallback por ID o nombre
+      const homeAcad = (allAcademies || []).find(a => 
+        (a.id && m.homeAcademyId && a.id === m.homeAcademyId) ||
+        (a.name && m.homeAcademyName && a.name.trim().toLowerCase() === m.homeAcademyName.trim().toLowerCase())
+      );
+      const awayAcad = (allAcademies || []).find(a => 
+        (a.id && m.awayAcademyId && a.id === m.awayAcademyId) ||
+        (a.name && m.awayAcademyName && a.name.trim().toLowerCase() === m.awayAcademyName.trim().toLowerCase())
+      );
       const homeLogoUrl = m.homeLogo || homeAcad?.logo;
       const awayLogoUrl = m.awayLogo || awayAcad?.logo;
 
@@ -586,78 +663,101 @@ export async function generateMatchdayPDF(
       // TABLERO DE RESULTADO Y EQUIPOS ENFRENTADOS CON ESCUDOS OFICIALES
       // ==============================================================
       let currentY = 32;
-      const heroHeight = 28; // Espacio amplio y estético para los escudos y nombres
+      const heroHeight = 30; // Altura optimizada para que nombres largos salgan en 2 líneas sin montarse
       doc.setFillColor(248, 250, 254);
       doc.setDrawColor(212, 175, 55);
       doc.setLineWidth(0.65);
       doc.roundedRect(marginX, currentY, contentWidth, heroHeight, 2.5, 2.5, 'FD');
 
-      const shieldSize = 21; // Escudo oficial destacado de 21mm x 21mm
+      const shieldSize = 19; // Escudo oficial destacado de 19mm x 19mm
+      const maxTeamNameWidth = 45; // Ancho máximo seguro para no chocar con el marcador central
 
       // 1. ESCUDO Y DATOS EQUIPO LOCAL
-      const homeShieldX = marginX + 4;
-      const homeShieldY = currentY + 3.5;
+      const homeShieldX = marginX + 3.5;
+      const homeShieldY = currentY + 4;
       drawTeamShieldBadge(doc, homeLogoBase64, m.homeAcademyName, homeShieldX, homeShieldY, shieldSize, goldAccent);
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
+      const homeRawName = m.homeAcademyName.toUpperCase();
+      const homeFontSize = homeRawName.length > 26 ? 8 : (homeRawName.length > 18 ? 8.5 : 9.5);
+      doc.setFontSize(homeFontSize);
       doc.setTextColor(13, 20, 36);
-      doc.text(m.homeAcademyName.toUpperCase(), marginX + 28, currentY + 10);
+
+      // Partir nombre largo en 2 líneas si sobrepasa el ancho permitido
+      const homeLines: string[] = doc.splitTextToSize(homeRawName, maxTeamNameWidth);
+      if (homeLines.length === 1) {
+        doc.text(homeLines[0], marginX + 25, currentY + 9.5);
+      } else {
+        doc.text(homeLines[0], marginX + 25, currentY + 7.5);
+        doc.text(homeLines[1], marginX + 25, currentY + 11.8);
+      }
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7);
       doc.setTextColor(100, 110, 125);
-      doc.text('EQUIPO LOCAL', marginX + 28, currentY + 16);
+      const homeLabelY = homeLines.length > 1 ? currentY + 17 : currentY + 16;
+      doc.text('EQUIPO LOCAL', marginX + 25, homeLabelY);
       
       const homeCoachName = m.lineups?.homeCoach || homeAcad?.coach || 'No registrado';
-      doc.text(`DT: ${homeCoachName.slice(0, 28)}`, marginX + 28, currentY + 22);
+      doc.text(`DT: ${homeCoachName.slice(0, 24)}`, marginX + 25, currentY + 23);
 
-      // 2. MARCADOR CENTRAL (HERO SCORE BOX)
-      const scoreBoxW = 48;
+      // 2. MARCADOR CENTRAL (HERO SCORE BOX - COMPACTO Y SIN COLISIÓN)
+      const scoreBoxW = 38;
       const scoreBoxX = (pageWidth / 2) - (scoreBoxW / 2);
       doc.setFillColor(13, 20, 36);
-      doc.roundedRect(scoreBoxX, currentY + 4, scoreBoxW, 20, 2, 2, 'F');
+      doc.roundedRect(scoreBoxX, currentY + 3.5, scoreBoxW, 23, 2, 2, 'F');
       
       doc.setTextColor(212, 175, 55);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.text('MARCADOR FINAL', pageWidth / 2, currentY + 8.5, { align: 'center' });
+      doc.setFontSize(7.5);
+      doc.text('MARCADOR FINAL', pageWidth / 2, currentY + 8, { align: 'center' });
 
       // Casilleros para escribir resultado en cancha
       const currentScoreHome = m.homeScore !== undefined && m.status === 'finished' ? String(m.homeScore) : '  ';
       const currentScoreAway = m.awayScore !== undefined && m.status === 'finished' ? String(m.awayScore) : '  ';
 
       doc.setFillColor(255, 255, 255);
-      doc.roundedRect(pageWidth / 2 - 18, currentY + 11, 14, 10, 1.2, 1.2, 'F');
-      doc.roundedRect(pageWidth / 2 + 4, currentY + 11, 14, 10, 1.2, 1.2, 'F');
+      doc.roundedRect(pageWidth / 2 - 15.5, currentY + 10.5, 12.5, 11, 1.2, 1.2, 'F');
+      doc.roundedRect(pageWidth / 2 + 3, currentY + 10.5, 12.5, 11, 1.2, 1.2, 'F');
       
       doc.setTextColor(0, 0, 0);
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
-      doc.text(currentScoreHome, pageWidth / 2 - 11, currentY + 18, { align: 'center' });
-      doc.text(currentScoreAway, pageWidth / 2 + 11, currentY + 18, { align: 'center' });
+      doc.text(currentScoreHome, pageWidth / 2 - 9.25, currentY + 18.5, { align: 'center' });
+      doc.text(currentScoreAway, pageWidth / 2 + 9.25, currentY + 18.5, { align: 'center' });
 
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(12);
       doc.text('-', pageWidth / 2, currentY + 18, { align: 'center' });
 
       // 3. ESCUDO Y DATOS EQUIPO VISITANTE
-      const awayShieldX = pageWidth - marginX - shieldSize - 4;
-      const awayShieldY = currentY + 3.5;
+      const awayShieldX = pageWidth - marginX - shieldSize - 3.5;
+      const awayShieldY = currentY + 4;
       drawTeamShieldBadge(doc, awayLogoBase64, m.awayAcademyName, awayShieldX, awayShieldY, shieldSize, goldAccent);
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
+      const awayRawName = m.awayAcademyName.toUpperCase();
+      const awayFontSize = awayRawName.length > 26 ? 8 : (awayRawName.length > 18 ? 8.5 : 9.5);
+      doc.setFontSize(awayFontSize);
       doc.setTextColor(13, 20, 36);
-      doc.text(m.awayAcademyName.toUpperCase(), pageWidth - marginX - 28, currentY + 10, { align: 'right' });
+
+      const awayTextRightX = pageWidth - marginX - 25;
+      const awayLines: string[] = doc.splitTextToSize(awayRawName, maxTeamNameWidth);
+      if (awayLines.length === 1) {
+        doc.text(awayLines[0], awayTextRightX, currentY + 9.5, { align: 'right' });
+      } else {
+        doc.text(awayLines[0], awayTextRightX, currentY + 7.5, { align: 'right' });
+        doc.text(awayLines[1], awayTextRightX, currentY + 11.8, { align: 'right' });
+      }
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7);
       doc.setTextColor(100, 110, 125);
-      doc.text('EQUIPO VISITANTE', pageWidth - marginX - 28, currentY + 16, { align: 'right' });
+      const awayLabelY = awayLines.length > 1 ? currentY + 17 : currentY + 16;
+      doc.text('EQUIPO VISITANTE', awayTextRightX, awayLabelY, { align: 'right' });
       
       const awayCoachName = m.lineups?.awayCoach || awayAcad?.coach || 'No registrado';
-      doc.text(`DT: ${awayCoachName.slice(0, 28)}`, pageWidth - marginX - 28, currentY + 22, { align: 'right' });
+      doc.text(`DT: ${awayCoachName.slice(0, 24)}`, awayTextRightX, currentY + 23, { align: 'right' });
 
       // BARRA DE DATOS ARBITRALES
       currentY += heroHeight + 3;
@@ -673,7 +773,9 @@ export async function generateMatchdayPDF(
       doc.text('Asistente 1: _____________________', marginX + 65, currentY + 5.5);
       doc.text('Asistente 2: _____________________', marginX + 115, currentY + 5.5);
 
-      // NÓMINAS DE JUGADORES (LOCAL Y VISITANTE LADO A LADO)
+      // ==============================================================
+      // NÓMINAS DE JUGADORES PARA MESA TÉCNICA CON MINI-ESCUDOS Y 2 LÍNEAS
+      // ==============================================================
       currentY += 10.5;
       const halfWidth = (contentWidth - 4) / 2;
 
@@ -695,6 +797,42 @@ export async function generateMatchdayPDF(
         false,
         allPlayers
       );
+
+      // Mini-escudos y banners de cabecera con soporte para 2 líneas
+      const tableShieldSize = 8;
+      const tableHeaderHeight = 12;
+      
+      // Header Local Mesa Técnica
+      doc.setFillColor(13, 20, 36);
+      doc.roundedRect(marginX, currentY, halfWidth, tableHeaderHeight, 1.5, 1.5, 'F');
+      drawTeamShieldBadge(doc, homeLogoBase64, m.homeAcademyName, marginX + 1.5, currentY + 2, tableShieldSize, goldAccent);
+      doc.setTextColor(212, 175, 55);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      const localTableLines: string[] = doc.splitTextToSize(`LOCAL: ${m.homeAcademyName.toUpperCase()}`, halfWidth - 14);
+      if (localTableLines.length === 1) {
+        doc.text(localTableLines[0], marginX + 11.5, currentY + 7.5);
+      } else {
+        doc.text(localTableLines[0], marginX + 11.5, currentY + 5.2);
+        doc.text(localTableLines[1], marginX + 11.5, currentY + 9.5);
+      }
+
+      // Header Visitante Mesa Técnica
+      doc.setFillColor(25, 34, 52);
+      doc.roundedRect(marginX + halfWidth + 4, currentY, halfWidth, tableHeaderHeight, 1.5, 1.5, 'F');
+      drawTeamShieldBadge(doc, awayLogoBase64, m.awayAcademyName, marginX + halfWidth + 5.5, currentY + 2, tableShieldSize, goldAccent);
+      doc.setTextColor(212, 175, 55);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      const awayTableLines: string[] = doc.splitTextToSize(`VISITANTE: ${m.awayAcademyName.toUpperCase()}`, halfWidth - 14);
+      if (awayTableLines.length === 1) {
+        doc.text(awayTableLines[0], marginX + halfWidth + 15.5, currentY + 7.5);
+      } else {
+        doc.text(awayTableLines[0], marginX + halfWidth + 15.5, currentY + 5.2);
+        doc.text(awayTableLines[1], marginX + halfWidth + 15.5, currentY + 9.5);
+      }
+
+      currentY += tableHeaderHeight + 1;
 
       // Asegurar 16 filas para que el árbitro/mesa tenga espacio suficiente en cancha
       const targetRows = 16;
@@ -723,7 +861,7 @@ export async function generateMatchdayPDF(
         startY: currentY,
         head: [[
           'N°',
-          `Local: ${m.homeAcademyName.slice(0, 18)}`,
+          `Jugador (Local)`,
           'T/S',
           'G',
           'TA',
@@ -767,7 +905,7 @@ export async function generateMatchdayPDF(
         startY: currentY,
         head: [[
           'N°',
-          `Vis: ${m.awayAcademyName.slice(0, 18)}`,
+          `Jugador (Visitante)`,
           'T/S',
           'G',
           'TA',
@@ -866,8 +1004,8 @@ export async function generateMatchdayPDF(
       const sigColWidth = contentWidth / 4;
 
       const signatures = [
-        { title: 'Firma Capitán Local', sub: m.homeAcademyName.slice(0, 20) },
-        { title: 'Firma Capitán Visitante', sub: m.awayAcademyName.slice(0, 20) },
+        { title: 'Firma Capitán Local', sub: m.homeAcademyName },
+        { title: 'Firma Capitán Visitante', sub: m.awayAcademyName },
         { title: 'Firma Árbitro Principal', sub: refereeName },
         { title: 'Firma Delegado de Mesa', sub: 'Mesa de Control Oficial' }
       ];
@@ -876,17 +1014,23 @@ export async function generateMatchdayPDF(
         const xPos = marginX + (idx * sigColWidth);
         doc.setDrawColor(120, 130, 145);
         doc.setLineWidth(0.4);
-        doc.line(xPos + 4, sigY + 9, xPos + sigColWidth - 4, sigY + 9);
+        doc.line(xPos + 4, sigY + 8.5, xPos + sigColWidth - 4, sigY + 8.5);
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7);
+        doc.setFontSize(6.8);
         doc.setTextColor(20, 30, 45);
-        doc.text(sig.title, xPos + (sigColWidth / 2), sigY + 12.5, { align: 'center' });
+        doc.text(sig.title, xPos + (sigColWidth / 2), sigY + 12, { align: 'center' });
 
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6);
-        doc.setTextColor(100, 110, 125);
-        doc.text(sig.sub, xPos + (sigColWidth / 2), sigY + 16, { align: 'center' });
+        doc.setFontSize(5.8);
+        doc.setTextColor(90, 100, 115);
+        const subLines: string[] = doc.splitTextToSize(sig.sub, sigColWidth - 6);
+        if (subLines.length === 1) {
+          doc.text(subLines[0], xPos + (sigColWidth / 2), sigY + 15.5, { align: 'center' });
+        } else {
+          doc.text(subLines[0], xPos + (sigColWidth / 2), sigY + 15, { align: 'center' });
+          doc.text(subLines[1], xPos + (sigColWidth / 2), sigY + 17.8, { align: 'center' });
+        }
       });
     });
   }
