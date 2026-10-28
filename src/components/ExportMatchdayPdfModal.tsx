@@ -26,7 +26,7 @@ import {
   MatchdayPdfFormat,
   MatchdayPDFExportResult
 } from '../utils/matchdayPdfExport';
-import { getAvailableJornadas, formatMatchTime } from '../services/storage';
+import { getAvailableJornadas, formatMatchTime, getSettings } from '../services/storage';
 
 interface ExportMatchdayPdfModalProps {
   isOpen: boolean;
@@ -109,7 +109,8 @@ export const ExportMatchdayPdfModal: React.FC<ExportMatchdayPdfModalProps> = ({
         throw new Error(`No hay partidos registrados para ${selectedJornada} en la categoría seleccionada.`);
       }
 
-      setGenerationStep('Construyendo acta oficial y casilleros de arbitraje...');
+      const appSettings = getSettings();
+      setGenerationStep('Cargando escudos oficiales de los clubes...');
       await new Promise(r => setTimeout(r, 60)); // smooth UI update
 
       const result = await generateMatchdayPDF(
@@ -120,13 +121,14 @@ export const ExportMatchdayPdfModal: React.FC<ExportMatchdayPdfModalProps> = ({
           jornada: selectedJornada,
           category: selectedCategory,
           formatType,
-          tournamentName: 'TORNEO ÉLITE EMILIATEX 2026',
-          companyName: 'EMILIATEX Confecciones & Uniformes'
+          tournamentName: appSettings.tournamentName || 'TORNEO ÉLITE EMILIATEX 2026',
+          companyName: appSettings.companyName || 'EMILIATEX Confecciones & Uniformes',
+          companyLogoUrl: appSettings.companyLogoUrl
         }
       );
 
       setGenerationResult(result);
-      setGenerationStep('¡Planilla generada con éxito!');
+      setGenerationStep('¡Planilla con escudos generada con éxito!');
 
       if (openInNewTab) {
         // Open in new tab for direct browser printing
@@ -472,32 +474,59 @@ export const ExportMatchdayPdfModal: React.FC<ExportMatchdayPdfModalProps> = ({
                   </div>
                 ) : (
                   <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
-                    {previewMatches.map((m, idx) => (
-                      <div
-                        key={m.id || idx}
-                        className="p-2.5 rounded-xl neu-pressed flex items-center justify-between gap-3 text-xs border border-white/5"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="w-5 h-5 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
-                            {idx + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <span className="font-bold text-white truncate block">
-                              {m.homeAcademyName} <span className="text-amber-300">vs</span> {m.awayAcademyName}
+                    {previewMatches.map((m, idx) => {
+                      const homeAcad = (academies || []).find(a => a.id === m.homeAcademyId || a.name === m.homeAcademyName);
+                      const awayAcad = (academies || []).find(a => a.id === m.awayAcademyId || a.name === m.awayAcademyName);
+                      const homeLogo = m.homeLogo || homeAcad?.logo;
+                      const awayLogo = m.awayLogo || awayAcad?.logo;
+
+                      return (
+                        <div
+                          key={m.id || idx}
+                          className="p-2.5 rounded-xl neu-pressed flex items-center justify-between gap-3 text-xs border border-white/5"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="w-5 h-5 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
+                              {idx + 1}
                             </span>
-                            <span className="text-[10px] text-slate-400">
-                              {m.category || 'Sub-15'} • {m.date || 'Fecha'} • {formatMatchTime(m.time || '')} • {m.stadium || 'Cancha'}
+                            
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {homeLogo ? (
+                                <img src={homeLogo} alt={m.homeAcademyName} className="w-5 h-5 rounded-md object-contain bg-white/10 p-0.5 border border-[#D4AF37]/40" />
+                              ) : (
+                                <div className="w-5 h-5 rounded-md bg-[#131724] border border-[#D4AF37]/40 flex items-center justify-center text-[8px] font-bold text-amber-300">
+                                  {m.homeAcademyName.slice(0, 2).toUpperCase()}
+                                </div>
+                              )}
+                              <span className="font-bold text-white max-w-[90px] sm:max-w-[130px] truncate">
+                                {m.homeAcademyName}
+                              </span>
+                              <span className="text-amber-300 font-bold font-cinzel text-[11px]">vs</span>
+                              {awayLogo ? (
+                                <img src={awayLogo} alt={m.awayAcademyName} className="w-5 h-5 rounded-md object-contain bg-white/10 p-0.5 border border-[#D4AF37]/40" />
+                              ) : (
+                                <div className="w-5 h-5 rounded-md bg-[#131724] border border-[#D4AF37]/40 flex items-center justify-center text-[8px] font-bold text-amber-300">
+                                  {m.awayAcademyName.slice(0, 2).toUpperCase()}
+                                </div>
+                              )}
+                              <span className="font-bold text-white max-w-[90px] sm:max-w-[130px] truncate">
+                                {m.awayAcademyName}
+                              </span>
+                            </div>
+
+                            <span className="text-[10px] text-slate-400 hidden md:inline ml-2">
+                              {m.category || 'Sub-15'} • {m.date || 'Fecha'} • {formatMatchTime(m.time || '')}
+                            </span>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="px-2 py-0.5 rounded-md bg-black/40 text-amber-300 font-mono text-[10px] font-bold">
+                              {m.referee ? `Árb: ${m.referee}` : 'Árb. por asignar'}
                             </span>
                           </div>
                         </div>
-
-                        <div className="text-right shrink-0">
-                          <span className="px-2 py-0.5 rounded-md bg-black/40 text-amber-300 font-mono text-[10px] font-bold">
-                            {m.referee ? `Árb: ${m.referee}` : 'Árb. por asignar'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -11,6 +11,7 @@ export interface MatchdayExportOptions {
   formatType?: MatchdayPdfFormat;
   tournamentName?: string;
   companyName?: string;
+  companyLogoUrl?: string;
   dateFilter?: string; // optional specific date
 }
 
@@ -56,6 +57,142 @@ function runAutoTable(doc: any, options: any): void {
     return;
   }
   console.warn('autoTable not detected directly, attempting plugin call');
+}
+
+/**
+ * Robust asynchronous image preloader and Base64 converter for jsPDF.
+ * Uses an offscreen HTMLCanvasElement with crossOrigin anonymous.
+ * Handles PNG, JPEG, SVG and WebP images.
+ */
+async function loadAndConvertImageToBase64(url?: string): Promise<string | null> {
+  if (!url || typeof url !== 'string' || !url.trim()) return null;
+  const cleanUrl = url.trim();
+  if (cleanUrl.startsWith('data:image/')) return cleanUrl;
+
+  try {
+    return await new Promise<string | null>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      
+      const timer = setTimeout(() => {
+        resolve(null);
+      }, 3000); // 3 seconds timeout
+
+      img.onload = () => {
+        clearTimeout(timer);
+        try {
+          const canvas = document.createElement('canvas');
+          const maxDim = 250;
+          let w = img.naturalWidth || img.width || 120;
+          let h = img.naturalHeight || img.height || 120;
+          
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          
+          canvas.width = Math.max(w, 1);
+          canvas.height = Math.max(h, 1);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(null);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/png');
+          resolve(dataUrl);
+        } catch (err) {
+          console.warn('CORS/Canvas export fallback for image:', cleanUrl, err);
+          resolve(null);
+        }
+      };
+
+      img.onerror = () => {
+        clearTimeout(timer);
+        resolve(null);
+      };
+
+      img.src = cleanUrl;
+    });
+  } catch (err) {
+    console.warn('Error loading image for PDF:', err);
+    return null;
+  }
+}
+
+/**
+ * Draw a team shield / crest badge onto the jsPDF document.
+ * If image is available, renders it with a gold-bordered backing card.
+ * If image is not available or CORS fails, renders a sharp vector monogram crest.
+ */
+function drawTeamShieldBadge(
+  doc: any,
+  logoBase64: string | null | undefined,
+  teamName: string,
+  x: number,
+  y: number,
+  size: number = 20,
+  accentColor: [number, number, number] = [212, 175, 55]
+): void {
+  // Circular or rounded rectangular card background
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(x, y, size, size, 3, 3, 'F');
+  
+  // Gold accent border
+  doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2]);
+  doc.setLineWidth(0.65);
+  doc.roundedRect(x, y, size, size, 3, 3, 'S');
+
+  let renderedImage = false;
+  if (logoBase64) {
+    try {
+      const pad = 1.2;
+      const innerSize = size - (pad * 2);
+      doc.addImage(
+        logoBase64,
+        'PNG',
+        x + pad,
+        y + pad,
+        innerSize,
+        innerSize,
+        undefined,
+        'FAST'
+      );
+      renderedImage = true;
+    } catch (e) {
+      console.warn('doc.addImage failed, falling back to vector shield monogram', e);
+      renderedImage = false;
+    }
+  }
+
+  // Fallback monogram if image could not be rendered
+  if (!renderedImage) {
+    doc.setFillColor(13, 20, 36);
+    doc.roundedRect(x + 1.2, y + 1.2, size - 2.4, size - 2.4, 2, 2, 'F');
+    doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
+    doc.setFont('helvetica', 'bold');
+    
+    const initials = teamName
+      .replace(/^(club|academia|deportivo|atletico|escuela)\s+/i, '')
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 3)
+      .map(w => w[0].toUpperCase())
+      .join('');
+
+    doc.setFontSize(size > 16 ? 9 : 7);
+    doc.text(
+      initials || teamName.slice(0, 3).toUpperCase(),
+      x + (size / 2),
+      y + (size / 2) + (size > 16 ? 3 : 2.5),
+      { align: 'center' }
+    );
+  }
 }
 
 /**
@@ -156,6 +293,7 @@ function getTeamRosterForMatch(
 
 /**
  * Generate official Matchday PDF for field use (Planilla de Campo / Partidos de la Jornada)
+ * Includes official team crests/escudos on each match sheet!
  */
 export async function generateMatchdayPDF(
   allMatches: TournamentMatch[],
@@ -168,10 +306,38 @@ export async function generateMatchdayPDF(
     category = 'all',
     formatType = 'complete',
     tournamentName = 'TORNEO ÉLITE EMILIATEX 2026',
-    companyName = 'EMILIATEX Confecciones & Uniformes'
+    companyName = 'EMILIATEX Confecciones & Uniformes',
+    companyLogoUrl
   } = options;
 
   const matches = getMatchesForMatchday(allMatches, jornada, category);
+
+  // -------------------------------------------------------------
+  // PRE-FETCH & CONVERT TEAM LOGOS & CRESTS TO BASE64
+  // -------------------------------------------------------------
+  const logoCache = new Map<string, string | null>();
+  const urlsToFetch = new Set<string>();
+
+  if (companyLogoUrl) {
+    urlsToFetch.add(companyLogoUrl);
+  }
+
+  matches.forEach(m => {
+    const homeAcad = (allAcademies || []).find(a => a.id === m.homeAcademyId || a.name === m.homeAcademyName);
+    const awayAcad = (allAcademies || []).find(a => a.id === m.awayAcademyId || a.name === m.awayAcademyName);
+    const hLogo = m.homeLogo || homeAcad?.logo;
+    const aLogo = m.awayLogo || awayAcad?.logo;
+    if (hLogo) urlsToFetch.add(hLogo);
+    if (aLogo) urlsToFetch.add(aLogo);
+  });
+
+  // Load all images in parallel with timeouts to keep generation snappy
+  await Promise.all(
+    Array.from(urlsToFetch).map(async (url) => {
+      const base64 = await loadAndConvertImageToBase64(url);
+      logoCache.set(url, base64);
+    })
+  );
 
   const doc = createJsPdfDoc({
     orientation: 'portrait',
@@ -184,14 +350,10 @@ export async function generateMatchdayPDF(
   const marginX = 14;
   const contentWidth = pageWidth - (marginX * 2);
 
-  // Paleta de colores oficial para impresión de alta legibilidad en cancha
+  // Official color palette for field-print readability
   const primaryNavy: Color = [13, 20, 36];
   const goldHeader: Color = [212, 175, 55];
-  const goldAccent: Color = [180, 140, 30];
-  const fieldGreen: Color = [16, 120, 70];
-  const grayLight: Color = [245, 247, 250];
-  const grayBorder: Color = [200, 205, 215];
-  const darkText = '#111827';
+  const goldAccent: [number, number, number] = [212, 175, 55];
 
   const jornadaLabel = jornada === 'all' ? 'Todas las Jornadas' : jornada;
   const categoryLabel = category === 'all' ? 'Todas las Categorías' : category;
@@ -202,23 +364,41 @@ export async function generateMatchdayPDF(
   if (formatType === 'complete' || formatType === 'schedule_only' || matches.length === 0) {
     // Encabezado institucional
     doc.setFillColor(13, 20, 36);
-    doc.roundedRect(marginX, 12, contentWidth, 24, 3, 3, 'F');
+    doc.roundedRect(marginX, 12, contentWidth, 25, 3, 3, 'F');
 
     // Borde dorado superior
     doc.setFillColor(212, 175, 55);
-    doc.rect(marginX, 12, contentWidth, 2, 'F');
+    doc.rect(marginX, 12, contentWidth, 2.2, 'F');
+
+    // Logo oficial de la empresa en encabezado si está disponible
+    const compLogoBase64 = companyLogoUrl ? logoCache.get(companyLogoUrl) : null;
+    let headerTextX = marginX + 6;
+
+    if (compLogoBase64) {
+      try {
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(marginX + 5, 15, 17, 17, 2, 2, 'F');
+        doc.setDrawColor(212, 175, 55);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(marginX + 5, 15, 17, 17, 2, 2, 'S');
+        doc.addImage(compLogoBase64, 'PNG', marginX + 6, 16, 15, 15, undefined, 'FAST');
+        headerTextX = marginX + 26;
+      } catch (e) {
+        headerTextX = marginX + 6;
+      }
+    }
 
     doc.setTextColor(212, 175, 55);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.text(tournamentName.toUpperCase(), marginX + 6, 20);
+    doc.setFontSize(12.5);
+    doc.text(tournamentName.toUpperCase(), headerTextX, 20);
 
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
-    doc.text(`PLANILLA OFICIAL DE CAMPO • ${companyName.toUpperCase()}`, marginX + 6, 26);
+    doc.text(`PLANILLA OFICIAL DE CAMPO • ${companyName.toUpperCase()}`, headerTextX, 26);
 
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(200, 210, 230);
     const nowStr = new Date().toLocaleDateString('es-ES', { 
       weekday: 'long', 
@@ -226,20 +406,20 @@ export async function generateMatchdayPDF(
       month: 'long', 
       day: 'numeric' 
     });
-    doc.text(`Generado: ${nowStr} • Mesa de Control & Árbitros`, marginX + 6, 31);
+    doc.text(`Emisión: ${nowStr} • Mesa Técnica & Cuerpo Arbitral`, headerTextX, 31);
 
     // Badge derecha
     doc.setFillColor(212, 175, 55);
-    doc.roundedRect(pageWidth - marginX - 55, 17, 50, 14, 2, 2, 'F');
+    doc.roundedRect(pageWidth - marginX - 55, 16.5, 50, 15, 2, 2, 'F');
     doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text(jornadaLabel.toUpperCase(), pageWidth - marginX - 30, 23.5, { align: 'center' });
+    doc.setFontSize(9.5);
+    doc.text(jornadaLabel.toUpperCase(), pageWidth - marginX - 30, 23, { align: 'center' });
     doc.setFontSize(7.5);
     doc.text(`${matches.length} PARTIDOS PROGRAMADOS`, pageWidth - marginX - 30, 28, { align: 'center' });
 
     // Sub-banner de parámetros de filtro
-    let currentY = 41;
+    let currentY = 42;
     doc.setFillColor(242, 245, 250);
     doc.setDrawColor(210, 215, 225);
     doc.roundedRect(marginX, currentY, contentWidth, 11, 2, 2, 'FD');
@@ -250,7 +430,7 @@ export async function generateMatchdayPDF(
     doc.text('CARTELERA GENERAL DE PARTIDOS PARA LA JORNADA', marginX + 4, currentY + 7);
 
     doc.setFont('helvetica', 'normal');
-    doc.text(`Categoría: ${categoryLabel}   |   Uso: Planilla de Cancha, Árbitros y Delegados`, pageWidth - marginX - 4, currentY + 7, { align: 'right' });
+    doc.text(`Categoría: ${categoryLabel}   |   Con Escudos Oficiales de Clubes`, pageWidth - marginX - 4, currentY + 7, { align: 'right' });
 
     currentY += 15;
 
@@ -350,7 +530,7 @@ export async function generateMatchdayPDF(
 
   // ==========================================
   // SECCIÓN 2: PLANILLAS INDIVIDUALES DE PARTIDO (ACTAS DE JUEGO)
-  // Cada partido tiene su propia hoja lista para imprimir y llevar a la cancha
+  // Cada partido tiene su propia hoja lista para imprimir con LOS ESCUDOS DE AMBOS EQUIPOS
   // ==========================================
   if (formatType === 'complete' || formatType === 'sheets_only') {
     matches.forEach((m, matchIdx) => {
@@ -366,57 +546,81 @@ export async function generateMatchdayPDF(
       const matchStadium = m.stadium || 'Cancha Principal';
       const refereeName = m.referee ? m.referee : 'Por designar';
 
+      // Rescatar escudo del equipo local y visitante
+      const homeAcad = (allAcademies || []).find(a => a.id === m.homeAcademyId || a.name === m.homeAcademyName);
+      const awayAcad = (allAcademies || []).find(a => a.id === m.awayAcademyId || a.name === m.awayAcademyName);
+      const homeLogoUrl = m.homeLogo || homeAcad?.logo;
+      const awayLogoUrl = m.awayLogo || awayAcad?.logo;
+
+      const homeLogoBase64 = homeLogoUrl ? logoCache.get(homeLogoUrl) : null;
+      const awayLogoBase64 = awayLogoUrl ? logoCache.get(awayLogoUrl) : null;
+
       // ENCABEZADO DE LA PLANILLA DE PARTIDO
       doc.setFillColor(13, 20, 36);
-      doc.roundedRect(marginX, 10, contentWidth, 20, 2, 2, 'F');
+      doc.roundedRect(marginX, 9, contentWidth, 20, 2, 2, 'F');
       doc.setFillColor(212, 175, 55);
-      doc.rect(marginX, 10, contentWidth, 1.8, 'F');
+      doc.rect(marginX, 9, contentWidth, 1.8, 'F');
 
       doc.setTextColor(212, 175, 55);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.text(`${tournamentName.toUpperCase()} • ACTA OFICIAL DE PARTIDO`, marginX + 5, 17);
+      doc.text(`${tournamentName.toUpperCase()} • ACTA OFICIAL DE PARTIDO`, marginX + 5, 16);
 
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text(`PLANILLA DE CAMPO Y CONTROL DE ARBITRAJE • ENCUENTRO N° ${matchIdx + 1}`, marginX + 5, 23);
-      doc.text(`${matchJornadaStr.toUpperCase()}  |  CATEGORÍA: ${matchCat.toUpperCase()}`, marginX + 5, 27.5);
+      doc.text(`PLANILLA DE CAMPO Y CONTROL DE ARBITRAJE • ENCUENTRO N° ${matchIdx + 1}`, marginX + 5, 21.5);
+      doc.text(`${matchJornadaStr.toUpperCase()}  |  CATEGORÍA: ${matchCat.toUpperCase()}`, marginX + 5, 26);
 
       // Badge fecha y hora en el encabezado
       doc.setFillColor(212, 175, 55);
-      doc.roundedRect(pageWidth - marginX - 58, 14, 54, 13, 2, 2, 'F');
+      doc.roundedRect(pageWidth - marginX - 58, 12.5, 54, 13.5, 2, 2, 'F');
       doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text(`${matchDateStr} • ${matchTimeStr}`, pageWidth - marginX - 31, 20, { align: 'center' });
+      doc.setFontSize(8.5);
+      doc.text(`${matchDateStr} • ${matchTimeStr}`, pageWidth - marginX - 31, 18.5, { align: 'center' });
       doc.setFontSize(7.5);
-      doc.text(matchStadium.toUpperCase(), pageWidth - marginX - 31, 24.5, { align: 'center' });
+      doc.text(matchStadium.toUpperCase(), pageWidth - marginX - 31, 23, { align: 'center' });
 
-      // TABLERO DE RESULTADO Y EQUIPOS ENFRENTADOS (CENTRAL HERO BOX)
-      let currentY = 33;
-      doc.setFillColor(248, 250, 253);
+      // ==============================================================
+      // TABLERO DE RESULTADO Y EQUIPOS ENFRENTADOS CON ESCUDOS OFICIALES
+      // ==============================================================
+      let currentY = 32;
+      const heroHeight = 28; // Espacio amplio y estético para los escudos y nombres
+      doc.setFillColor(248, 250, 254);
       doc.setDrawColor(212, 175, 55);
-      doc.setLineWidth(0.6);
-      doc.roundedRect(marginX, currentY, contentWidth, 24, 2, 2, 'FD');
+      doc.setLineWidth(0.65);
+      doc.roundedRect(marginX, currentY, contentWidth, heroHeight, 2.5, 2.5, 'FD');
 
-      // Columna Local
+      const shieldSize = 21; // Escudo oficial destacado de 21mm x 21mm
+
+      // 1. ESCUDO Y DATOS EQUIPO LOCAL
+      const homeShieldX = marginX + 4;
+      const homeShieldY = currentY + 3.5;
+      drawTeamShieldBadge(doc, homeLogoBase64, m.homeAcademyName, homeShieldX, homeShieldY, shieldSize, goldAccent);
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
+      doc.setFontSize(10.5);
       doc.setTextColor(13, 20, 36);
-      doc.text(m.homeAcademyName.toUpperCase(), marginX + 8, currentY + 8);
+      doc.text(m.homeAcademyName.toUpperCase(), marginX + 28, currentY + 10);
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 110, 125);
-      doc.text('EQUIPO LOCAL', marginX + 8, currentY + 13);
-      doc.text(`DT: ${(m.lineups?.homeCoach || 'No especificado')}`, marginX + 8, currentY + 18);
+      doc.text('EQUIPO LOCAL', marginX + 28, currentY + 16);
+      
+      const homeCoachName = m.lineups?.homeCoach || homeAcad?.coach || 'No registrado';
+      doc.text(`DT: ${homeCoachName.slice(0, 28)}`, marginX + 28, currentY + 22);
 
-      // Marcador Box central
+      // 2. MARCADOR CENTRAL (HERO SCORE BOX)
+      const scoreBoxW = 48;
+      const scoreBoxX = (pageWidth / 2) - (scoreBoxW / 2);
       doc.setFillColor(13, 20, 36);
-      doc.roundedRect(pageWidth / 2 - 28, currentY + 4, 56, 16, 2, 2, 'F');
+      doc.roundedRect(scoreBoxX, currentY + 4, scoreBoxW, 20, 2, 2, 'F');
+      
       doc.setTextColor(212, 175, 55);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
+      doc.setFontSize(8);
       doc.text('MARCADOR FINAL', pageWidth / 2, currentY + 8.5, { align: 'center' });
 
       // Casilleros para escribir resultado en cancha
@@ -424,31 +628,39 @@ export async function generateMatchdayPDF(
       const currentScoreAway = m.awayScore !== undefined && m.status === 'finished' ? String(m.awayScore) : '  ';
 
       doc.setFillColor(255, 255, 255);
-      doc.roundedRect(pageWidth / 2 - 20, currentY + 10.5, 16, 8, 1, 1, 'F');
-      doc.roundedRect(pageWidth / 2 + 4, currentY + 10.5, 16, 8, 1, 1, 'F');
+      doc.roundedRect(pageWidth / 2 - 18, currentY + 11, 14, 10, 1.2, 1.2, 'F');
+      doc.roundedRect(pageWidth / 2 + 4, currentY + 11, 14, 10, 1.2, 1.2, 'F');
       
       doc.setTextColor(0, 0, 0);
-      doc.setFontSize(12);
-      doc.text(currentScoreHome, pageWidth / 2 - 12, currentY + 16.5, { align: 'center' });
-      doc.text(currentScoreAway, pageWidth / 2 + 12, currentY + 16.5, { align: 'center' });
+      doc.setFontSize(13);
+      doc.setFont('helvetica', 'bold');
+      doc.text(currentScoreHome, pageWidth / 2 - 11, currentY + 18, { align: 'center' });
+      doc.text(currentScoreAway, pageWidth / 2 + 11, currentY + 18, { align: 'center' });
 
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(10);
-      doc.text('-', pageWidth / 2, currentY + 16, { align: 'center' });
+      doc.setFontSize(12);
+      doc.text('-', pageWidth / 2, currentY + 18, { align: 'center' });
 
-      // Columna Visitante
+      // 3. ESCUDO Y DATOS EQUIPO VISITANTE
+      const awayShieldX = pageWidth - marginX - shieldSize - 4;
+      const awayShieldY = currentY + 3.5;
+      drawTeamShieldBadge(doc, awayLogoBase64, m.awayAcademyName, awayShieldX, awayShieldY, shieldSize, goldAccent);
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
+      doc.setFontSize(10.5);
       doc.setTextColor(13, 20, 36);
-      doc.text(m.awayAcademyName.toUpperCase(), pageWidth - marginX - 8, currentY + 8, { align: 'right' });
+      doc.text(m.awayAcademyName.toUpperCase(), pageWidth - marginX - 28, currentY + 10, { align: 'right' });
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 110, 125);
-      doc.text('EQUIPO VISITANTE', pageWidth - marginX - 8, currentY + 13, { align: 'right' });
-      doc.text(`DT: ${(m.lineups?.awayCoach || 'No especificado')}`, pageWidth - marginX - 8, currentY + 18, { align: 'right' });
+      doc.text('EQUIPO VISITANTE', pageWidth - marginX - 28, currentY + 16, { align: 'right' });
+      
+      const awayCoachName = m.lineups?.awayCoach || awayAcad?.coach || 'No registrado';
+      doc.text(`DT: ${awayCoachName.slice(0, 28)}`, pageWidth - marginX - 28, currentY + 22, { align: 'right' });
 
       // BARRA DE DATOS ARBITRALES
-      currentY += 27;
+      currentY += heroHeight + 3;
       doc.setFillColor(240, 243, 248);
       doc.setDrawColor(200, 205, 215);
       doc.setLineWidth(0.3);
@@ -462,7 +674,7 @@ export async function generateMatchdayPDF(
       doc.text('Asistente 2: _____________________', marginX + 115, currentY + 5.5);
 
       // NÓMINAS DE JUGADORES (LOCAL Y VISITANTE LADO A LADO)
-      currentY += 11;
+      currentY += 10.5;
       const halfWidth = (contentWidth - 4) / 2;
 
       // Obtener nóminas pre-cargadas o generar filas en blanco
@@ -533,7 +745,7 @@ export async function generateMatchdayPDF(
         bodyStyles: {
           fontSize: 6.5,
           textColor: [20, 25, 35],
-          cellPadding: 1.4,
+          cellPadding: 1.35,
           valign: 'middle'
         },
         columnStyles: {
@@ -577,7 +789,7 @@ export async function generateMatchdayPDF(
         bodyStyles: {
           fontSize: 6.5,
           textColor: [20, 25, 35],
-          cellPadding: 1.4,
+          cellPadding: 1.35,
           valign: 'middle'
         },
         columnStyles: {
@@ -664,17 +876,17 @@ export async function generateMatchdayPDF(
         const xPos = marginX + (idx * sigColWidth);
         doc.setDrawColor(120, 130, 145);
         doc.setLineWidth(0.4);
-        doc.line(xPos + 4, sigY + 10, xPos + sigColWidth - 4, sigY + 10);
+        doc.line(xPos + 4, sigY + 9, xPos + sigColWidth - 4, sigY + 9);
 
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7);
         doc.setTextColor(20, 30, 45);
-        doc.text(sig.title, xPos + (sigColWidth / 2), sigY + 13.5, { align: 'center' });
+        doc.text(sig.title, xPos + (sigColWidth / 2), sigY + 12.5, { align: 'center' });
 
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6);
         doc.setTextColor(100, 110, 125);
-        doc.text(sig.sub, xPos + (sigColWidth / 2), sigY + 17, { align: 'center' });
+        doc.text(sig.sub, xPos + (sigColWidth / 2), sigY + 16, { align: 'center' });
       });
     });
   }
@@ -694,7 +906,7 @@ export async function generateMatchdayPDF(
     doc.line(marginX, pageHeight - 9, pageWidth - marginX, pageHeight - 9);
 
     doc.text(
-      `Torneo Élite EMILIATEX • ${jornadaLabel} (${categoryLabel}) • Impreso para uso en Cancha`,
+      `Torneo Élite EMILIATEX • ${jornadaLabel} (${categoryLabel}) • Impreso para uso en Cancha con Escudos Oficiales`,
       marginX,
       pageHeight - 5
     );
