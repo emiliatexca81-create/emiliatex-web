@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable, { Color } from 'jspdf-autotable';
 import { TournamentMatch, Academy, TOURNAMENT_CATEGORIES } from '../types';
 import { normalizeCategory, computeAcademyStandings, formatMatchTime } from '../services/storage';
+import { DEFAULT_EMILIATEX_LOGO_BASE64 } from '../assets/emiliatexDefaultLogo';
 
 export interface PDFExportOptions {
   category: string;
@@ -389,15 +390,28 @@ export async function generateConfrontationsPDF(
     doc.setFillColor(212, 175, 55);
     doc.rect(margin, currentY, pageWidth - margin * 2, 2.5, 'F');
 
+    let headerTextX = margin + 6;
+    try {
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(margin + 4, currentY + 4, 16, 16, 1.5, 1.5, 'F');
+      doc.setDrawColor(212, 175, 55);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(margin + 4, currentY + 4, 16, 16, 1.5, 1.5, 'S');
+      doc.addImage(DEFAULT_EMILIATEX_LOGO_BASE64, 'JPEG', margin + 4.8, currentY + 4.8, 14.4, 14.4, undefined, 'FAST');
+      headerTextX = margin + 24;
+    } catch {
+      headerTextX = margin + 6;
+    }
+
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.text((tournamentName || 'TORNEO OFICIAL').toUpperCase(), margin + 6, currentY + 11);
+    doc.setFontSize(12.5);
+    doc.text((tournamentName || 'TORNEO OFICIAL').toUpperCase(), headerTextX, currentY + 11);
 
     doc.setTextColor(212, 175, 55);
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setFont('helvetica', 'bold');
-    doc.text('REGISTRO DE ENFRENTAMIENTOS JORNADA A JORNADA Y CRUCES PENDIENTES', margin + 6, currentY + 17);
+    doc.text('REGISTRO DE ENFRENTAMIENTOS JORNADA A JORNADA Y CRUCES PENDIENTES', headerTextX, currentY + 17);
 
     doc.setTextColor(148, 163, 184);
     doc.setFontSize(7.5);

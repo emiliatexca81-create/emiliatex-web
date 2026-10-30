@@ -6,7 +6,7 @@ export const initialSettings: AppSettings = {
   tournamentName: 'Torneo Élite EMILIATEX 2026',
   emailContact: 'emiliatexca81@gmail.com',
   address: 'Calle Principal de Santa Teresa Vereda 5 Galpón 4-179, San Cristóbal -Edo. Táchira Venezuela',
-  companyLogoUrl: 'https://firebasestorage.googleapis.com/v0/b/potent-quest-cq6d2.firebasestorage.app/o/WhatsApp%20Image%202026-10-11%20at%202.13.47%20PM.jpeg?alt=media&token=0f9b47e3-b545-40e8-9e68-6164e112868d'
+  companyLogoUrl: '/assets/emiliatex-logo.jpg'
 };
 
 export const initialAcademies: Academy[] = [

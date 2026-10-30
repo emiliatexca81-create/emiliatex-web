@@ -910,7 +910,9 @@ export function getSettings(): AppSettings {
     address: current.address && current.address !== 'Zona Industrial Textil, Medellín / Bogotá, Colombia'
       ? current.address
       : initialSettings.address,
-    companyLogoUrl: current.companyLogoUrl || initialSettings.companyLogoUrl
+    companyLogoUrl: (current.companyLogoUrl && !current.companyLogoUrl.includes('potent-quest-cq6d2'))
+      ? current.companyLogoUrl
+      : '/assets/emiliatex-logo.jpg'
   };
 }
 

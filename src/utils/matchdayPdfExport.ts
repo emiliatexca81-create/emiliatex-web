@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable, { Color } from 'jspdf-autotable';
 import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES } from '../types';
 import { normalizeCategory, formatMatchTime } from '../services/storage';
+import { DEFAULT_EMILIATEX_LOGO_BASE64 } from '../assets/emiliatexDefaultLogo';
 
 export type MatchdayPdfFormat = 'complete' | 'schedule_only' | 'sheets_only';
 
@@ -60,75 +61,182 @@ function runAutoTable(doc: any, options: any): void {
 }
 
 /**
+ * Helper to convert a Blob to Base64 data URL
+ */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Checks if a given image URL corresponds to the official EMILIATEX company logo
+ */
+function isOfficialEmiliatexLogoUrl(url?: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const clean = url.trim();
+  if (clean.includes('/assets/emiliatex-logo.jpg') || clean.includes('emiliatex-logo')) return true;
+  if (clean.includes('WhatsApp%20Image%202026-10-11') || clean.includes('0f9b47e3-b545-40e8-9e68-6164e112868d')) {
+    return true;
+  }
+  return false;
+}
+
+let isLocalProxyActive = true;
+
+/**
  * Robust asynchronous image preloader and Base64 converter for jsPDF.
- * Uses a 3-tier fallback strategy:
- * Tier 1: Same-origin /api/image-proxy (bypasses browser CORS & canvas tainting)
- * Tier 2: Direct fetch() with blob conversion
- * Tier 3: Offscreen HTMLCanvasElement with cache-busting
+ * Built specifically to ensure images and logos load both in local dev (with Node proxy)
+ * and in static production deployments (GitHub Pages, custom domains like emiliatex.com).
+ * 
+ * Strategy:
+ * 1. Immediate return for data:image/ URIs.
+ * 2. Instant identification of EMILIATEX logo -> returns bundled base64 without network latency.
+ * 3. Relative local assets (e.g. /assets/emiliatex-logo.jpg) loaded directly on same-origin.
+ * 4. Local proxy (/api/image-proxy) with strict content-type check to skip static 200 HTML fallbacks.
+ * 5. High-availability public Cloudflare-backed CORS image proxy (wsrv.nl / images.weserv.nl).
+ * 6. Direct fetch with CORS mode.
+ * 7. HTML Image + Canvas with cache-busting.
  */
 async function loadAndConvertImageToBase64(url?: string): Promise<string | null> {
-  if (!url || typeof url !== 'string' || !url.trim()) return null;
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return null;
+  }
   const cleanUrl = url.trim();
+
+  // Tier 0: Direct Data URL
   if (cleanUrl.startsWith('data:image/')) return cleanUrl;
 
-  // Tier 1: Fetch via local proxy endpoint to bypass CORS entirely
-  try {
-    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(cleanUrl)}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(proxyUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const blob = await res.blob();
-      if (blob && blob.size > 0) {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-        if (dataUrl && dataUrl.startsWith('data:image/')) {
-          return dataUrl;
-        }
-      }
-    }
-  } catch (err) {
-    // proxy failed or not active, fallback to direct fetch/canvas
+  // Tier 1: Instant match for official EMILIATEX company logo
+  if (isOfficialEmiliatexLogoUrl(cleanUrl)) {
+    return DEFAULT_EMILIATEX_LOGO_BASE64;
   }
 
-  // Tier 2: Direct fetch (in case external CDN allows CORS directly)
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(cleanUrl, { mode: 'cors', signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const blob = await res.blob();
-      if (blob && blob.size > 0) {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-        if (dataUrl && dataUrl.startsWith('data:image/')) {
-          return dataUrl;
+  // Tier 2: Relative or same-origin URL (e.g. /assets/... or ./assets/...)
+  if (cleanUrl.startsWith('/') || cleanUrl.startsWith('./') || cleanUrl.startsWith('assets/')) {
+    try {
+      const res = await fetch(cleanUrl);
+      const cType = res.headers.get('content-type') || '';
+      if (res.ok && (cType.includes('image/') || cType.includes('application/octet-stream'))) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          const dataUrl = await blobToDataUrl(blob);
+          if (dataUrl && dataUrl.startsWith('data:image/')) {
+            return dataUrl;
+          }
         }
       }
+    } catch {
+      // continue to next tiers
     }
-  } catch (err) {
-    // direct fetch failed
   }
 
-  // Tier 3: Offscreen Image element + Canvas with cache-busting timestamp
+  // Tier 3: Same-origin backend proxy (/api/image-proxy)
+  // Only valid if the server actually returned an image (not SPA index.html from static host)
+  if (isLocalProxyActive) {
+    try {
+      const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(cleanUrl)}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1800);
+      const res = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      const cType = res.headers.get('content-type') || '';
+      if (res.ok && (cType.includes('image/') || cType.includes('application/octet-stream'))) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          const dataUrl = await blobToDataUrl(blob);
+          if (dataUrl && dataUrl.startsWith('data:image/')) {
+            return dataUrl;
+          }
+        }
+      } else {
+        // If 404 or text/html returned, we're on a static host (emiliatex.com). Disable local proxy.
+        isLocalProxyActive = false;
+      }
+    } catch {
+      isLocalProxyActive = false;
+    }
+  }
+
+  // Tier 4: Public Cloudflare-backed CORS image proxy (wsrv.nl)
+  // CRITICAL for static deployments (emiliatex.com): delivers the image with Access-Control-Allow-Origin: *
+  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    try {
+      const proxyCdnUrl = `https://wsrv.nl/?url=${encodeURIComponent(cleanUrl)}&w=250&output=png`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(proxyCdnUrl, { mode: 'cors', signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      const cType = res.headers.get('content-type') || '';
+      if (res.ok && (cType.includes('image/') || cType.includes('application/octet-stream'))) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          const dataUrl = await blobToDataUrl(blob);
+          if (dataUrl && dataUrl.startsWith('data:image/')) {
+            return dataUrl;
+          }
+        }
+      }
+    } catch {
+      // wsrv.nl failed or blocked
+    }
+
+    // Tier 5: Secondary CORS proxy mirror (images.weserv.nl)
+    try {
+      const mirrorUrl = `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}&w=250&output=png`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(mirrorUrl, { mode: 'cors', signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      const cType = res.headers.get('content-type') || '';
+      if (res.ok && (cType.includes('image/') || cType.includes('application/octet-stream'))) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          const dataUrl = await blobToDataUrl(blob);
+          if (dataUrl && dataUrl.startsWith('data:image/')) {
+            return dataUrl;
+          }
+        }
+      }
+    } catch {
+      // mirror failed
+    }
+
+    // Tier 6: Direct fetch with CORS mode
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(cleanUrl, { mode: 'cors', signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      const cType = res.headers.get('content-type') || '';
+      if (res.ok && (cType.includes('image/') || cType.includes('application/octet-stream'))) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          const dataUrl = await blobToDataUrl(blob);
+          if (dataUrl && dataUrl.startsWith('data:image/')) {
+            return dataUrl;
+          }
+        }
+      }
+    } catch {
+      // direct fetch blocked by CORS
+    }
+  }
+
+  // Tier 7: Offscreen Image element + Canvas with cache-busting timestamp
   try {
     return await new Promise<string | null>((resolve) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
 
-      const timer = setTimeout(() => resolve(null), 3500);
+      const timer = setTimeout(() => resolve(null), 3000);
 
       img.onload = () => {
         clearTimeout(timer);
@@ -206,20 +314,26 @@ function drawTeamShieldBadge(
   doc.setLineWidth(0.65);
   doc.roundedRect(x, y, size, size, 2.5, 2.5, 'S');
 
+  // Automatic fallback to official EMILIATEX crest if team is Emiliatex
+  let effectiveLogo = logoBase64;
+  if (!effectiveLogo && /emiliatex/i.test(teamName)) {
+    effectiveLogo = DEFAULT_EMILIATEX_LOGO_BASE64;
+  }
+
   let renderedImage = false;
-  if (logoBase64) {
+  if (effectiveLogo) {
     try {
       let fmt = 'PNG';
-      if (logoBase64.startsWith('data:image/jpeg') || logoBase64.startsWith('data:image/jpg')) {
+      if (effectiveLogo.startsWith('data:image/jpeg') || effectiveLogo.startsWith('data:image/jpg')) {
         fmt = 'JPEG';
-      } else if (logoBase64.startsWith('data:image/webp')) {
+      } else if (effectiveLogo.startsWith('data:image/webp')) {
         fmt = 'WEBP';
       }
 
       const pad = 1.0;
       const innerSize = size - (pad * 2);
       doc.addImage(
-        logoBase64,
+        effectiveLogo,
         fmt,
         x + pad,
         y + pad,
@@ -441,7 +555,7 @@ export async function generateMatchdayPDF(
     doc.rect(marginX, 12, contentWidth, 2.2, 'F');
 
     // Logo oficial de la empresa en encabezado si está disponible
-    const compLogoBase64 = companyLogoUrl ? logoCache.get(companyLogoUrl) : null;
+    const compLogoBase64 = (companyLogoUrl ? logoCache.get(companyLogoUrl) : null) || DEFAULT_EMILIATEX_LOGO_BASE64;
     let headerTextX = marginX + 6;
 
     if (compLogoBase64) {
@@ -526,7 +640,7 @@ export async function generateMatchdayPDF(
           `${dateFormatted}\n${timeFormatted}`,
           stadium,
           cat,
-          `${m.homeAcademyName}\nvs\n${m.awayAcademyName}`,
+          `    ${m.homeAcademyName}\n    vs\n    ${m.awayAcademyName}`,
           referee,
           statusText,
           '[   ] - [   ]' // Casilla para anotar en cancha
@@ -573,7 +687,41 @@ export async function generateMatchdayPDF(
         alternateRowStyles: {
           fillColor: [248, 250, 252]
         },
-        margin: { left: marginX, right: marginX }
+        margin: { left: marginX, right: marginX },
+        didDrawCell: (data: any) => {
+          if (data.section === 'body' && data.column.index === 4) {
+            const m = matches[data.row.index];
+            if (!m) return;
+            const homeAcad = (allAcademies || []).find(a => 
+              (a.id && m.homeAcademyId && a.id === m.homeAcademyId) ||
+              (a.name && m.homeAcademyName && a.name.trim().toLowerCase() === m.homeAcademyName.trim().toLowerCase())
+            );
+            const awayAcad = (allAcademies || []).find(a => 
+              (a.id && m.awayAcademyId && a.id === m.awayAcademyId) ||
+              (a.name && m.awayAcademyName && a.name.trim().toLowerCase() === m.awayAcademyName.trim().toLowerCase())
+            );
+            const hLogoUrl = m.homeLogo || homeAcad?.logo;
+            const aLogoUrl = m.awayLogo || awayAcad?.logo;
+            const hLogo = hLogoUrl ? logoCache.get(hLogoUrl) : null;
+            const aLogo = aLogoUrl ? logoCache.get(aLogoUrl) : null;
+
+            const iconSize = 4.2;
+            const iconX = data.cell.x + 1.2;
+
+            if (hLogo) {
+              try {
+                let fmt = hLogo.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+                doc.addImage(hLogo, fmt, iconX, data.cell.y + 1.6, iconSize, iconSize, undefined, 'FAST');
+              } catch {}
+            }
+            if (aLogo) {
+              try {
+                let fmt = aLogo.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+                doc.addImage(aLogo, fmt, iconX, data.cell.y + data.cell.height - iconSize - 1.6, iconSize, iconSize, undefined, 'FAST');
+              } catch {}
+            }
+          }
+        }
       });
 
       // Tabla de Instrucciones y Protocolo de Cancha al final del cronograma
@@ -638,16 +786,35 @@ export async function generateMatchdayPDF(
       doc.setFillColor(212, 175, 55);
       doc.rect(marginX, 9, contentWidth, 1.8, 'F');
 
+      // Logo oficial de EMILIATEX en el encabezado de cada planilla de partido
+      const compLogoBase64Match = (companyLogoUrl ? logoCache.get(companyLogoUrl) : null) || DEFAULT_EMILIATEX_LOGO_BASE64;
+      let matchHeaderTextX = marginX + 5;
+
+      if (compLogoBase64Match) {
+        try {
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(marginX + 3.5, 11, 15.5, 15.5, 1.5, 1.5, 'F');
+          doc.setDrawColor(212, 175, 55);
+          doc.setLineWidth(0.4);
+          doc.roundedRect(marginX + 3.5, 11, 15.5, 15.5, 1.5, 1.5, 'S');
+          let fmt = compLogoBase64Match.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+          doc.addImage(compLogoBase64Match, fmt, marginX + 4.2, 11.7, 14.1, 14.1, undefined, 'FAST');
+          matchHeaderTextX = marginX + 22;
+        } catch {
+          matchHeaderTextX = marginX + 5;
+        }
+      }
+
       doc.setTextColor(212, 175, 55);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(`${tournamentName.toUpperCase()} • ACTA OFICIAL DE PARTIDO`, marginX + 5, 16);
+      doc.setFontSize(10.5);
+      doc.text(`${tournamentName.toUpperCase()} • ACTA OFICIAL DE PARTIDO`, matchHeaderTextX, 15.5);
 
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text(`PLANILLA DE CAMPO Y CONTROL DE ARBITRAJE • ENCUENTRO N° ${matchIdx + 1}`, marginX + 5, 21.5);
-      doc.text(`${matchJornadaStr.toUpperCase()}  |  CATEGORÍA: ${matchCat.toUpperCase()}`, marginX + 5, 26);
+      doc.text(`PLANILLA DE CAMPO Y CONTROL DE ARBITRAJE • ENCUENTRO N° ${matchIdx + 1}`, matchHeaderTextX, 20.8);
+      doc.text(`${matchJornadaStr.toUpperCase()}  |  CATEGORÍA: ${matchCat.toUpperCase()}`, matchHeaderTextX, 25.5);
 
       // Badge fecha y hora en el encabezado
       doc.setFillColor(212, 175, 55);
