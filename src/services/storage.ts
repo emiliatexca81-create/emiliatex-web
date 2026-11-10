@@ -9,7 +9,7 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore, TournamentCategory, ClientWorkItem, TOURNAMENT_CATEGORIES } from '../types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, OrderStatus, QuinielaEntry, MatchPredictionScore, TournamentCategory, ClientWorkItem, TOURNAMENT_CATEGORIES, TournamentPhoto } from '../types';
 import { 
   initialProducts, 
   initialMatches, 
@@ -17,7 +17,8 @@ import {
   initialAcademies, 
   initialOrders, 
   initialSettings,
-  initialClientWorks
+  initialClientWorks,
+  initialTournamentPhotos
 } from '../data/initialData';
 
 export const initialQuinielas: QuinielaEntry[] = [];
@@ -32,15 +33,19 @@ const KEYS = {
   QUINIELAS: 'emiliatex_quinielas_v1',
   USER_QUINIELA: 'emiliatex_user_quiniela_v1',
   CLIENT_WORKS: 'emiliatex_client_works_v1',
+  TOURNAMENT_PHOTOS: 'emiliatex_tournament_photos_v1',
   INITIALIZED_MATCHES: 'emiliatex_matches_initialized_v1',
   INITIALIZED_PRODUCTS: 'emiliatex_products_initialized_v1',
   INITIALIZED_PLAYERS: 'emiliatex_players_initialized_v1',
   INITIALIZED_ACADEMIES: 'emiliatex_academies_initialized_v1',
   INITIALIZED_CLIENT_WORKS: 'emiliatex_client_works_initialized_v1',
+  INITIALIZED_TOURNAMENT_PHOTOS: 'emiliatex_tournament_photos_initialized_v1',
   DELETED_MATCH_IDS: 'emiliatex_deleted_match_ids_v1',
   INITIALIZED_QUINIELAS: 'emiliatex_quinielas_initialized_v1',
   DELETED_QUINIELA_IDS: 'emiliatex_deleted_quiniela_ids_v1',
   DELETED_CLIENT_WORK_IDS: 'emiliatex_deleted_client_works_ids_v1',
+  DELETED_TOURNAMENT_PHOTO_IDS: 'emiliatex_deleted_tournament_photo_ids_v1',
+  LIKED_TOURNAMENT_PHOTO_IDS: 'emiliatex_liked_tournament_photo_ids_v1',
 };
 
 // Safe localStorage accessor
@@ -114,6 +119,24 @@ export function unmarkClientWorkAsDeleted(id: string): void {
   const current = getDeletedClientWorkIds();
   if (current.includes(id)) {
     setItem(KEYS.DELETED_CLIENT_WORK_IDS, current.filter(x => x !== id));
+  }
+}
+
+export function getDeletedTournamentPhotoIds(): string[] {
+  return getItem<string[]>(KEYS.DELETED_TOURNAMENT_PHOTO_IDS, []);
+}
+
+export function markTournamentPhotoAsDeleted(id: string): void {
+  const current = getDeletedTournamentPhotoIds();
+  if (!current.includes(id)) {
+    setItem(KEYS.DELETED_TOURNAMENT_PHOTO_IDS, [...current, id]);
+  }
+}
+
+export function unmarkTournamentPhotoAsDeleted(id: string): void {
+  const current = getDeletedTournamentPhotoIds();
+  if (current.includes(id)) {
+    setItem(KEYS.DELETED_TOURNAMENT_PHOTO_IDS, current.filter(x => x !== id));
   }
 }
 
@@ -986,6 +1009,15 @@ export async function seedInitialFirestoreData(): Promise<void> {
       console.log('Seeding settings to Firestore...');
       await setDoc(doc(db, 'settings', 'global'), cleanFirestoreData(initialSettings));
     }
+
+    const photoSnap = await getDocs(collection(db, 'tournament_photos'));
+    if (photoSnap.empty && !localStorage.getItem(KEYS.INITIALIZED_TOURNAMENT_PHOTOS)) {
+      console.log('Seeding tournament photos to Firestore...');
+      for (const photo of initialTournamentPhotos) {
+        await setDoc(doc(db, 'tournament_photos', photo.id), cleanFirestoreData(photo));
+      }
+      localStorage.setItem(KEYS.INITIALIZED_TOURNAMENT_PHOTOS, 'true');
+    }
   } catch (err) {
     console.warn('Seed operation skipped or restricted:', err);
   }
@@ -1613,6 +1645,140 @@ export function subscribeClientWorks(callback: (items: ClientWorkItem[]) => void
       console.warn('Client works subscription notice:', error.message);
       const deletedIds = getDeletedClientWorkIds();
       callback(getClientWorks().filter(w => !deletedIds.includes(w.id)));
+    }
+  );
+}
+
+// ---------------- TOURNAMENT PHOTOS (SOCIAL GALLERY) ----------------
+
+export function getTournamentPhotos(): TournamentPhoto[] {
+  const deletedIds = getDeletedTournamentPhotoIds();
+  const stored = getItem<TournamentPhoto[] | null>(KEYS.TOURNAMENT_PHOTOS, null);
+  if (stored !== null) {
+    return stored.filter(p => !deletedIds.includes(p.id));
+  }
+  return initialTournamentPhotos.filter(p => !deletedIds.includes(p.id));
+}
+
+export async function saveTournamentPhoto(photo: TournamentPhoto): Promise<TournamentPhoto[]> {
+  unmarkTournamentPhotoAsDeleted(photo.id);
+  const current = getTournamentPhotos();
+  const existsIdx = current.findIndex(p => p.id === photo.id);
+  let updated: TournamentPhoto[];
+  if (existsIdx >= 0) {
+    updated = [...current];
+    updated[existsIdx] = photo;
+  } else {
+    updated = [photo, ...current];
+  }
+
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_TOURNAMENT_PHOTOS, 'true');
+  }
+  setItem(KEYS.TOURNAMENT_PHOTOS, updated);
+
+  try {
+    await setDoc(doc(db, 'tournament_photos', photo.id), cleanFirestoreData(photo));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `tournament_photos/${photo.id}`);
+  }
+  return updated;
+}
+
+export async function deleteTournamentPhoto(id: string): Promise<TournamentPhoto[]> {
+  markTournamentPhotoAsDeleted(id);
+  const current = getTournamentPhotos();
+  const updated = current.filter(p => p.id !== id);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.INITIALIZED_TOURNAMENT_PHOTOS, 'true');
+  }
+  setItem(KEYS.TOURNAMENT_PHOTOS, updated);
+
+  try {
+    await deleteDoc(doc(db, 'tournament_photos', id));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `tournament_photos/${id}`);
+  }
+  try {
+    await deleteDoc(doc(db, 'tournamentPhotos', id));
+  } catch {
+    // Ignore alias
+  }
+  return updated;
+}
+
+export function getLikedTournamentPhotoIds(): string[] {
+  return getItem<string[]>(KEYS.LIKED_TOURNAMENT_PHOTO_IDS, []);
+}
+
+export async function toggleLikeTournamentPhoto(photoId: string): Promise<{ liked: boolean; count: number }> {
+  const currentLikes = getLikedTournamentPhotoIds();
+  const alreadyLiked = currentLikes.includes(photoId);
+  const nextLiked = !alreadyLiked;
+
+  const nextLikedIds = nextLiked
+    ? [...currentLikes, photoId]
+    : currentLikes.filter(id => id !== photoId);
+  setItem(KEYS.LIKED_TOURNAMENT_PHOTO_IDS, nextLikedIds);
+
+  const photos = getTournamentPhotos();
+  const target = photos.find(p => p.id === photoId);
+  let newCount = target ? (target.likesCount || 0) : 0;
+  if (nextLiked) {
+    newCount += 1;
+  } else {
+    newCount = Math.max(0, newCount - 1);
+  }
+
+  if (target) {
+    target.likesCount = newCount;
+    setItem(KEYS.TOURNAMENT_PHOTOS, photos);
+  }
+
+  // Update in Firestore
+  try {
+    const docRef = doc(db, 'tournament_photos', photoId);
+    await updateDoc(docRef, { likesCount: newCount });
+  } catch {
+    try {
+      if (target) {
+        await setDoc(doc(db, 'tournament_photos', photoId), cleanFirestoreData({ ...target, likesCount: newCount }), { merge: true });
+      }
+    } catch {
+      // offline fallback
+    }
+  }
+
+  return { liked: nextLiked, count: newCount };
+}
+
+export function subscribeTournamentPhotos(callback: (photos: TournamentPhoto[]) => void): () => void {
+  const path = 'tournament_photos';
+  return onSnapshot(
+    collection(db, path),
+    (snapshot) => {
+      const deletedIds = getDeletedTournamentPhotoIds();
+      if (!snapshot.empty) {
+        const list = snapshot.docs
+          .map(d => ({ ...d.data(), id: d.id } as TournamentPhoto))
+          .filter(p => !deletedIds.includes(p.id))
+          .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(KEYS.INITIALIZED_TOURNAMENT_PHOTOS, 'true');
+        }
+        setItem(KEYS.TOURNAMENT_PHOTOS, list, false);
+        callback(list);
+      } else {
+        const fallbackList = getTournamentPhotos()
+          .filter(p => !deletedIds.includes(p.id))
+          .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        callback(fallbackList);
+      }
+    },
+    (error) => {
+      console.warn('Tournament photos subscription notice:', error.message);
+      const deletedIds = getDeletedTournamentPhotoIds();
+      callback(getTournamentPhotos().filter(p => !deletedIds.includes(p.id)));
     }
   );
 }

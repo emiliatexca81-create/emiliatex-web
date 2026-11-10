@@ -14,7 +14,9 @@ import {
   QuinielaEntry,
   MatchPredictionScore,
   ClientWorkItem,
-  ClientWorkCategory
+  ClientWorkCategory,
+  TournamentPhoto,
+  TOURNAMENT_PHOTO_CATEGORIES
 } from '../types';
 import { 
   Shirt, 
@@ -70,7 +72,8 @@ import {
   Filter,
   Camera,
   FileText,
-  Printer
+  Printer,
+  Heart
 } from 'lucide-react';
 import { 
   saveProduct, 
@@ -105,6 +108,10 @@ import {
   getClientWorks,
   saveClientWork,
   deleteClientWork,
+  getTournamentPhotos,
+  saveTournamentPhoto,
+  deleteTournamentPhoto,
+  subscribeTournamentPhotos,
   formatMatchTime
 } from '../services/storage';
 import { useAuth, PRIMARY_ADMIN_EMAIL } from '../services/authContext';
@@ -137,11 +144,12 @@ interface AdminViewProps {
   settings: AppSettings;
   quinielas?: QuinielaEntry[];
   clientWorks?: ClientWorkItem[];
+  tournamentPhotos?: TournamentPhoto[];
   onRefresh: () => void;
   initialSection?: AdminSection;
 }
 
-type AdminSection = 'menu' | 'add_product' | 'add_match' | 'add_player' | 'add_academy' | 'view_orders' | 'view_quinielas' | 'manage_gallery';
+type AdminSection = 'menu' | 'add_product' | 'add_match' | 'add_player' | 'add_academy' | 'view_orders' | 'view_quinielas' | 'manage_gallery' | 'manage_tournament_photos';
 
 export const AdminView: React.FC<AdminViewProps> = ({
   products,
@@ -152,6 +160,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   settings,
   quinielas: propQuinielas,
   clientWorks: propClientWorks,
+  tournamentPhotos: propTournamentPhotos,
   onRefresh,
   initialSection
 }) => {
@@ -159,7 +168,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (initialSection) return initialSection;
     const params = new URLSearchParams(window.location.search);
     const sec = params.get('adminSection') as AdminSection;
-    if (sec && ['add_product', 'add_match', 'add_player', 'add_academy', 'view_orders', 'view_quinielas'].includes(sec)) {
+    if (sec && ['add_product', 'add_match', 'add_player', 'add_academy', 'view_orders', 'view_quinielas', 'manage_gallery', 'manage_tournament_photos'].includes(sec)) {
       return sec;
     }
     return 'menu';
@@ -336,11 +345,63 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // In-App Confirmation Modal (solves confirm() blocked in iframe)
   const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
-    type: 'academy' | 'match' | 'player' | 'product' | 'order' | 'all_matches' | 'quiniela' | 'all_quinielas' | 'sample_quinielas' | 'client_work';
+    type: 'academy' | 'match' | 'player' | 'product' | 'order' | 'all_matches' | 'quiniela' | 'all_quinielas' | 'sample_quinielas' | 'client_work' | 'tournament_photo';
     id: string;
     name: string;
     extraInfo?: string;
   } | null>(null);
+
+  // Tournament photos state
+  const [tournamentPhotosList, setTournamentPhotosList] = useState<TournamentPhoto[]>(() => propTournamentPhotos || getTournamentPhotos());
+  const [tournamentPhotoCategoryFilter, setTournamentPhotoCategoryFilter] = useState<string>('all');
+  const [tournamentPhotoJornadaFilter, setTournamentPhotoJornadaFilter] = useState<string>('all');
+  const [tournamentPhotoSearch, setTournamentPhotoSearch] = useState<string>('');
+
+  // Tournament photo upload form
+  const tournamentPhotoFileInputRef = useRef<HTMLInputElement>(null);
+  const [newPhotoFile, setNewPhotoFile] = useState<File | null>(null);
+  const [newPhotoPreviewUrl, setNewPhotoPreviewUrl] = useState<string>('');
+  const [newPhotoTitle, setNewPhotoTitle] = useState<string>('');
+  const [newPhotoCaption, setNewPhotoCaption] = useState<string>('');
+  const [newPhotoCategory, setNewPhotoCategory] = useState<string>('Sub-15');
+  const [newPhotoJornada, setNewPhotoJornada] = useState<string>('Jornada 1');
+  const [newPhotoTeamName, setNewPhotoTeamName] = useState<string>('');
+  const [newPhotoTags, setNewPhotoTags] = useState<string>('#TorneoElite, #PasionFutbolera');
+  const [newPhotoFeatured, setNewPhotoFeatured] = useState<boolean>(false);
+  const [isUploadingTournamentPhoto, setIsUploadingTournamentPhoto] = useState<boolean>(false);
+  const [tournamentPhotoUploadProgress, setTournamentPhotoUploadProgress] = useState<number>(0);
+  const [tournamentPhotoUploadStatus, setTournamentPhotoUploadStatus] = useState<string>('');
+
+  useEffect(() => {
+    if (propTournamentPhotos) {
+      setTournamentPhotosList(propTournamentPhotos);
+    }
+  }, [propTournamentPhotos]);
+
+  useEffect(() => {
+    const unsub = subscribeTournamentPhotos((updated) => {
+      setTournamentPhotosList(updated);
+    });
+    return () => unsub();
+  }, []);
+
+  const filteredTournamentPhotos = useMemo(() => {
+    return tournamentPhotosList.filter(photo => {
+      if (tournamentPhotoCategoryFilter !== 'all' && photo.category !== tournamentPhotoCategoryFilter) {
+        return false;
+      }
+      if (tournamentPhotoJornadaFilter !== 'all' && photo.jornada !== tournamentPhotoJornadaFilter) {
+        return false;
+      }
+      if (tournamentPhotoSearch.trim()) {
+        const q = tournamentPhotoSearch.toLowerCase().trim();
+        const text = `${photo.title} ${photo.caption || ''} ${photo.teamName || ''} ${(photo.tags || []).join(' ')}`.toLowerCase();
+        if (!text.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tournamentPhotosList, tournamentPhotoCategoryFilter, tournamentPhotoJornadaFilter, tournamentPhotoSearch]);
+
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [isSavingAcademy, setIsSavingAcademy] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
@@ -451,6 +512,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const updated = await deleteClientWork(id);
         setClientWorksList(updated);
         showToast(`Trabajo "${name}" eliminado de la galería 4:5`, 'success');
+      } else if (type === 'tournament_photo') {
+        const updated = await deleteTournamentPhoto(id);
+        setTournamentPhotosList(updated);
+        showToast(`Fotografía "${name}" eliminada de la galería del torneo`, 'success');
       }
       onRefresh();
       setConfirmDeleteModal(null);
@@ -467,6 +532,107 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setLineupModalMatch(null);
     onRefresh();
     showToast('¡Alineaciones e incidencias del partido guardadas con éxito!', 'success');
+  };
+
+  const handleTournamentPhotoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Selecciona un archivo de imagen válido (JPG, PNG, WebP)', 'error');
+      return;
+    }
+    setNewPhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setNewPhotoPreviewUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    if (!newPhotoTitle.trim()) {
+      const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+      setNewPhotoTitle(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
+    }
+  };
+
+  const handleUploadTournamentPhotoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPhotoFile && !newPhotoPreviewUrl) {
+      showToast('Debes seleccionar una fotografía para subir', 'error');
+      return;
+    }
+    if (!newPhotoTitle.trim()) {
+      showToast('Por favor escribe un título para la fotografía', 'error');
+      return;
+    }
+
+    setIsUploadingTournamentPhoto(true);
+    setTournamentPhotoUploadProgress(0);
+    setTournamentPhotoUploadStatus('Optimizando y preparando imagen...');
+
+    try {
+      let finalUrl = '';
+      if (newPhotoFile) {
+        setTournamentPhotoUploadStatus('Subiendo a Firebase Storage...');
+        finalUrl = await uploadFileToStorage(newPhotoFile, {
+          folder: 'tournament',
+          maxWidth: 1920,
+          maxHeight: 1440,
+          quality: 0.88,
+          onProgress: (p: StorageUploadProgress) => {
+            setTournamentPhotoUploadProgress(p.percent);
+            setTournamentPhotoUploadStatus(`Subiendo a Storage: ${p.percent}% (${(p.bytesTransferred / 1024).toFixed(0)} KB de ${(p.totalBytes / 1024).toFixed(0)} KB)`);
+          }
+        });
+      } else {
+        finalUrl = newPhotoPreviewUrl;
+      }
+
+      setTournamentPhotoUploadStatus('Guardando datos en Firestore...');
+
+      const parsedTags = newPhotoTags
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t.length > 0)
+        .map(t => (t.startsWith('#') ? t : `#${t}`));
+
+      const newPhotoItem: TournamentPhoto = {
+        id: `tp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        title: newPhotoTitle.trim(),
+        caption: newPhotoCaption.trim() || undefined,
+        imageUrl: finalUrl,
+        category: newPhotoCategory,
+        jornada: newPhotoJornada.trim() || undefined,
+        teamName: newPhotoTeamName.trim() || undefined,
+        likesCount: 0,
+        tags: parsedTags,
+        createdAt: new Date().toISOString(),
+        featured: newPhotoFeatured
+      };
+
+      const updated = await saveTournamentPhoto(newPhotoItem);
+      setTournamentPhotosList(updated);
+
+      // Reset form
+      setNewPhotoFile(null);
+      setNewPhotoPreviewUrl('');
+      setNewPhotoTitle('');
+      setNewPhotoCaption('');
+      setNewPhotoTeamName('');
+      setNewPhotoFeatured(false);
+      if (tournamentPhotoFileInputRef.current) {
+        tournamentPhotoFileInputRef.current.value = '';
+      }
+
+      showToast(`¡Foto "${newPhotoItem.title}" subida a Storage y publicada con éxito!`, 'success');
+      onRefresh();
+    } catch (err: any) {
+      console.error('Error al subir foto a Storage:', err);
+      showToast('Error al subir a Storage: ' + (err?.message || 'Error desconocido'), 'error');
+    } finally {
+      setIsUploadingTournamentPhoto(false);
+      setTournamentPhotoUploadProgress(0);
+      setTournamentPhotoUploadStatus('');
+    }
   };
 
   const handleSelectSection = (sec: AdminSection) => {
@@ -1644,7 +1810,37 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </div>
 
-              {/* Card 8: Exportar Cruces & Historial en PDF */}
+              {/* Card 8: Fotos Oficiales del Torneo (Subida a Firebase Storage) */}
+              <div 
+                onClick={() => handleSelectSection('manage_tournament_photos')}
+                className="group relative flex flex-col justify-between p-6 rounded-3xl neu-card-gold border-amber-400/60 hover:border-amber-400 transition-all cursor-pointer active:scale-[0.97] shadow-xl hover:shadow-[0_10px_35px_rgba(212,175,55,0.35)] bg-gradient-to-b from-[#1b1c2b] via-[#242017] to-[#11121c]"
+              >
+                <div className="absolute top-4 right-4">
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[9px] font-black uppercase font-mono tracking-wider shadow">
+                    STORAGE
+                  </span>
+                </div>
+
+                <div>
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl mx-auto flex items-center justify-center mb-4 neu-pressed text-[#D4AF37] group-hover:scale-105 group-hover:bg-[#D4AF37] group-hover:text-black transition-all shadow-inner border border-[#D4AF37]/50">
+                    <Camera className="w-9 h-9 sm:w-11 sm:h-11" />
+                  </div>
+                  
+                  <div className="text-center">
+                    <h3 className="font-black text-lg text-white tracking-wide font-cinzel group-hover:text-amber-300 transition-colors">
+                      Fotos del Torneo
+                    </h3>
+                    <p className="text-xs text-slate-300 mt-1 line-clamp-2">
+                      Sube fotos a Storage con barra de progreso, asigna categorías (Sub-7 a Sub-15, Premiación) y publica al feed social.
+                    </p>
+                    <span className="inline-block mt-3 px-3 py-1 rounded-full neu-pressed text-[11px] font-mono text-amber-300 font-bold border border-[#D4AF37]/30">
+                      {tournamentPhotosList.length} fotos activas
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 9: Exportar Cruces & Historial en PDF */}
               <div 
                 onClick={() => setIsExportPdfOpen(true)}
                 className="group relative flex flex-col justify-between p-6 rounded-3xl neu-card-gold border-amber-400/50 hover:border-amber-400 transition-all cursor-pointer active:scale-[0.97] shadow-xl hover:shadow-[0_10px_30px_rgba(212,175,55,0.3)] bg-gradient-to-b from-[#1b1c2b] to-[#11121c]"
@@ -1826,6 +2022,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     {activeSection === 'view_orders' && 'Bandeja de Pedidos'}
                     {activeSection === 'view_quinielas' && 'Control de Quiniela'}
                     {activeSection === 'manage_gallery' && 'Galería de Clientes'}
+                    {activeSection === 'manage_tournament_photos' && 'Fotos del Torneo (Storage)'}
                   </span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-white font-cinzel">
@@ -1836,6 +2033,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   {activeSection === 'view_orders' && 'Bandeja de Pedidos WhatsApp'}
                   {activeSection === 'view_quinielas' && 'Participantes & Clasificación Quiniela C.A'}
                   {activeSection === 'manage_gallery' && 'Galería de Clientes & Lookbook'}
+                  {activeSection === 'manage_tournament_photos' && 'Fotos Oficiales del Torneo & Storage'}
                 </h2>
               </div>
             </div>
@@ -1907,6 +2105,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   }`}
                 >
                   Galería ({clientWorksList.length})
+                </button>
+                <button
+                  onClick={() => handleSelectSection('manage_tournament_photos')}
+                  className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                    activeSection === 'manage_tournament_photos' ? 'neu-btn-gold text-black shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Fotos Torneo ({tournamentPhotosList.length})
                 </button>
               </div>
             </div>
@@ -5189,6 +5395,434 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* SECTION 8: FOTOS DEL TORNEO OFICIAL & SUBIDA A STORAGE */}
+      {activeSection === 'manage_tournament_photos' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          
+          {/* Top Banner with Direct Gallery Link */}
+          <div className="rounded-3xl neu-card-gold p-6 sm:p-8 space-y-4 shadow-2xl border border-amber-400/50 bg-gradient-to-r from-[#171825] via-[#241F14] to-[#171825]">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl neu-btn-gold text-black flex items-center justify-center shrink-0 shadow-lg">
+                  <Camera className="w-7 h-7" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg sm:text-xl font-black font-cinzel text-white">
+                      Fotos Oficiales del Torneo
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-mono font-bold">
+                      Storage Bucket Activo
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1 max-w-2xl">
+                    Sube fotografías de alta calidad directamente a Firebase Storage (<span className="font-mono text-amber-300">potent-quest-cq6d2.firebasestorage.app/tournament</span>). Las imágenes se optimizan y se reflejan al instante en la Galería Social del torneo con sistema de likes e interacción.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <a
+                  href="/?page=tournament&tab=gallery"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2.5 rounded-xl neu-btn-gold text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-md hover:brightness-110 active:scale-95 transition-all"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-black" />
+                  <span>Ver Feed Social en Vivo</span>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Form Card: Subir a Firebase Storage */}
+          <div className="rounded-3xl neu-card p-6 sm:p-8 space-y-6 shadow-2xl border border-white/10 bg-[#12131F]">
+            <div className="border-b border-white/10 pb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl neu-card-gold text-[#D4AF37] flex items-center justify-center font-black">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-white font-cinzel">
+                    Subir Nueva Fotografía Oficial a Storage
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Arrastra o selecciona la fotografía del partido, premiación o momento del torneo.
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-mono text-amber-300 font-bold px-3 py-1 rounded-xl neu-pressed">
+                Carpeta: /tournament
+              </span>
+            </div>
+
+            <form onSubmit={handleUploadTournamentPhotoSubmit} className="space-y-6">
+              
+              {/* Dropzone / File Picker */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                  Archivo de Imagen (JPG, PNG, WebP) *
+                </label>
+
+                <div
+                  onClick={() => tournamentPhotoFileInputRef.current?.click()}
+                  className={`relative rounded-3xl border-2 border-dashed transition-all cursor-pointer overflow-hidden p-6 text-center ${
+                    newPhotoPreviewUrl 
+                      ? 'border-amber-400/50 bg-black/50' 
+                      : 'border-white/15 bg-black/30 hover:border-amber-400/50 hover:bg-black/40'
+                  }`}
+                >
+                  <input
+                    ref={tournamentPhotoFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleTournamentPhotoFileSelect}
+                    className="hidden"
+                  />
+
+                  {newPhotoPreviewUrl ? (
+                    <div className="space-y-3">
+                      <div className="relative max-h-72 mx-auto rounded-2xl overflow-hidden bg-black flex items-center justify-center">
+                        <img 
+                          src={newPhotoPreviewUrl} 
+                          alt="Preview" 
+                          className="max-h-72 w-auto object-contain rounded-xl shadow-lg" 
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-2">
+                          <Camera className="w-4 h-4 text-amber-300" />
+                          <span>Haz clic para cambiar imagen</span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-mono">
+                        {newPhotoFile ? `${newPhotoFile.name} • ${(newPhotoFile.size / 1024).toFixed(1)} KB` : 'Imagen seleccionada'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="py-8 space-y-3">
+                      <div className="w-16 h-16 rounded-2xl neu-card-gold text-black flex items-center justify-center mx-auto shadow-md">
+                        <UploadCloud className="w-8 h-8" />
+                      </div>
+                      <div>
+                        <span className="text-sm font-bold text-white block">
+                          Haz clic para seleccionar o arrastra una fotografía del torneo aquí
+                        </span>
+                        <span className="text-xs text-slate-400 block mt-1">
+                          Se optimizará a alta definición (1920px max) y se subirá al bucket oficial de Firebase Storage.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Upload Progress Bar */}
+              {isUploadingTournamentPhoto && (
+                <div className="rounded-2xl neu-card p-4 space-y-2 border border-amber-400/40 bg-amber-400/5">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="text-amber-300 flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>{tournamentPhotoUploadStatus}</span>
+                    </span>
+                    <span className="font-mono text-white text-sm">{tournamentPhotoUploadProgress}%</span>
+                  </div>
+                  <div className="w-full h-2.5 rounded-full bg-black/60 overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-amber-400 via-[#FFE17D] to-[#D4AF37] transition-all duration-300 shadow-[0_0_12px_rgba(212,175,55,0.8)]"
+                      style={{ width: `${tournamentPhotoUploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Form Fields Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                
+                {/* Title */}
+                <div className="space-y-1 sm:col-span-2 md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Título de la Foto *
+                  </label>
+                  <input
+                    type="text"
+                    value={newPhotoTitle}
+                    onChange={(e) => setNewPhotoTitle(e.target.value)}
+                    placeholder="Ej: Golazo de Chilena en Semifinal Sub-15"
+                    required
+                    className="w-full neu-input px-3.5 py-2.5 rounded-xl text-xs text-white bg-[#141522] border border-white/10 focus:border-[#D4AF37] focus:outline-none"
+                  />
+                </div>
+
+                {/* Category */}
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Categoría *
+                  </label>
+                  <select
+                    value={newPhotoCategory}
+                    onChange={(e) => setNewPhotoCategory(e.target.value)}
+                    className="w-full neu-input px-3.5 py-2.5 rounded-xl text-xs font-bold text-white bg-[#141522] border border-white/10 focus:border-[#D4AF37] focus:outline-none cursor-pointer"
+                  >
+                    {TOURNAMENT_PHOTO_CATEGORIES.filter(c => c !== 'Todos').map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Jornada */}
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Jornada / Fecha
+                  </label>
+                  <input
+                    type="text"
+                    value={newPhotoJornada}
+                    onChange={(e) => setNewPhotoJornada(e.target.value)}
+                    placeholder="Ej: Jornada 1, Jornada 2, Semifinal, Gran Final"
+                    className="w-full neu-input px-3.5 py-2.5 rounded-xl text-xs text-white bg-[#141522] border border-white/10 focus:border-[#D4AF37] focus:outline-none"
+                  />
+                </div>
+
+                {/* Team Name */}
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Equipo / Academia Vinculada
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <select
+                      value={newPhotoTeamName}
+                      onChange={(e) => setNewPhotoTeamName(e.target.value)}
+                      className="w-full neu-input px-3 py-2.5 rounded-xl text-xs font-bold text-white bg-[#141522] border border-white/10 focus:border-[#D4AF37] focus:outline-none cursor-pointer"
+                    >
+                      <option value="">Selecciona del torneo...</option>
+                      {academies.map(a => (
+                        <option key={a.id} value={a.name}>{a.name} ({a.city})</option>
+                      ))}
+                      <option value="Todas las Delegaciones">Todas las Delegaciones</option>
+                      <option value="Tribuna y Familiares">Tribuna y Familiares</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      value={newPhotoTeamName}
+                      onChange={(e) => setNewPhotoTeamName(e.target.value)}
+                      placeholder="O escribe nombre del club..."
+                      className="w-full neu-input px-3 py-2.5 rounded-xl text-xs text-white bg-[#141522] border border-white/10 focus:border-[#D4AF37] focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Caption / Descripción */}
+                <div className="space-y-1 sm:col-span-2 md:col-span-3">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Pie de Foto / Relato Social
+                  </label>
+                  <textarea
+                    value={newPhotoCaption}
+                    onChange={(e) => setNewPhotoCaption(e.target.value)}
+                    rows={2}
+                    placeholder="Escribe una pequeña descripción del momento o jugada..."
+                    className="w-full neu-input px-3.5 py-2.5 rounded-xl text-xs text-white bg-[#141522] border border-white/10 focus:border-[#D4AF37] focus:outline-none resize-none"
+                  />
+                </div>
+
+                {/* Hashtags */}
+                <div className="space-y-1 sm:col-span-2 md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Hashtags
+                  </label>
+                  <input
+                    type="text"
+                    value={newPhotoTags}
+                    onChange={(e) => setNewPhotoTags(e.target.value)}
+                    placeholder="#TorneoElite, #Sub15, #Golazo"
+                    className="w-full neu-input px-3.5 py-2.5 rounded-xl text-xs text-white bg-[#141522] border border-white/10 focus:border-[#D4AF37] focus:outline-none font-mono"
+                  />
+                </div>
+
+                {/* Featured Toggle */}
+                <div className="space-y-1 flex items-center">
+                  <label className="flex items-center gap-2 p-3 rounded-xl neu-pressed bg-black/40 border border-white/5 cursor-pointer w-full mt-auto">
+                    <input
+                      type="checkbox"
+                      checked={newPhotoFeatured}
+                      onChange={(e) => setNewPhotoFeatured(e.target.checked)}
+                      className="w-4 h-4 rounded text-[#D4AF37] focus:ring-[#D4AF37] bg-[#141520] border-white/20 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-amber-300 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Destacada</span>
+                    </span>
+                  </label>
+                </div>
+
+              </div>
+
+              {/* Submit CTA */}
+              <div className="pt-2 border-t border-white/10 flex items-center justify-end gap-3">
+                <button
+                  type="submit"
+                  disabled={isUploadingTournamentPhoto || (!newPhotoFile && !newPhotoPreviewUrl)}
+                  className="px-7 py-3 rounded-2xl neu-btn-gold text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2.5 shadow-xl hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isUploadingTournamentPhoto ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-black" />
+                      <span>Subiendo a Firebase Storage...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="w-5 h-5 text-black" />
+                      <span>Subir Fotografía a Storage</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </form>
+          </div>
+
+          {/* Manage Uploaded Photos Card */}
+          <div className="rounded-3xl neu-card p-6 sm:p-8 space-y-6 shadow-2xl border border-white/10 bg-[#12131F]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-white font-cinzel flex items-center gap-2">
+                  <span>Fotografías Publicadas en la Galería</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-xs font-mono font-bold">
+                    {filteredTournamentPhotos.length} de {tournamentPhotosList.length}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Gestiona las imágenes oficiales, revisa los likes del público o elimina fotografías.
+                </p>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={tournamentPhotoCategoryFilter}
+                  onChange={(e) => setTournamentPhotoCategoryFilter(e.target.value)}
+                  className="px-3 py-2 rounded-xl neu-pressed text-xs text-white bg-[#141622] border border-white/10 focus:outline-none"
+                >
+                  <option value="all">Todas las Categorías</option>
+                  {TOURNAMENT_PHOTO_CATEGORIES.filter(c => c !== 'Todos').map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+
+                <input
+                  type="text"
+                  value={tournamentPhotoSearch}
+                  onChange={(e) => setTournamentPhotoSearch(e.target.value)}
+                  placeholder="Buscar foto..."
+                  className="px-3 py-2 rounded-xl neu-input text-xs text-white bg-[#141622] border border-white/10 focus:outline-none w-40"
+                />
+              </div>
+            </div>
+
+            {filteredTournamentPhotos.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <Camera className="w-12 h-12 text-slate-600 mx-auto" />
+                <h4 className="text-sm font-bold text-white font-cinzel">No hay fotos que coincidan</h4>
+                <p className="text-xs text-slate-400">Prueba con otra categoría o limpia el buscador.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+                {filteredTournamentPhotos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    className="group rounded-3xl neu-card overflow-hidden border border-white/5 hover:border-[#D4AF37]/50 transition-all flex flex-col justify-between shadow-lg bg-[#11131c]"
+                  >
+                    {/* Thumbnail Image */}
+                    <div className="relative w-full aspect-video bg-black/70 overflow-hidden">
+                      <img
+                        src={photo.imageUrl}
+                        alt={photo.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        loading="lazy"
+                      />
+                      <div className="absolute top-2.5 left-2.5 flex items-center gap-1">
+                        <span className="px-2 py-0.5 rounded-lg bg-black/80 text-amber-300 text-[10px] font-mono font-bold uppercase">
+                          {photo.category}
+                        </span>
+                        {photo.featured && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-400 text-black text-[9px] font-black uppercase font-mono">
+                            ★
+                          </span>
+                        )}
+                      </div>
+                      {photo.jornada && (
+                        <span className="absolute bottom-2.5 left-2.5 px-2 py-0.5 rounded bg-black/75 text-slate-300 text-[9px] font-mono">
+                          {photo.jornada}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Metadata & Actions */}
+                    <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold text-white font-cinzel line-clamp-1">
+                          {photo.title}
+                        </h4>
+                        {photo.caption && (
+                          <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5">
+                            {photo.caption}
+                          </p>
+                        )}
+                        {photo.teamName && (
+                          <p className="text-[10px] text-amber-400 font-medium mt-1 truncate">
+                            {photo.teamName}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                        <span className="flex items-center gap-1 text-[11px] font-bold text-red-400">
+                          <Heart className="w-3.5 h-3.5 fill-red-500 text-red-500" />
+                          <span>{photo.likesCount || 0}</span>
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (navigator.clipboard) {
+                                navigator.clipboard.writeText(photo.imageUrl);
+                                showToast('Enlace de la imagen copiado al portapapeles', 'success');
+                              }
+                            }}
+                            className="p-1.5 rounded-lg neu-pressed text-slate-400 hover:text-white transition-colors cursor-pointer"
+                            title="Copiar enlace de Storage"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmDeleteModal({
+                                type: 'tournament_photo',
+                                id: photo.id,
+                                name: photo.title,
+                                extraInfo: `Categoría: ${photo.category} • Fecha: ${photo.jornada || 'Oficial'}`
+                              });
+                            }}
+                            className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/25 border border-red-500/20 transition-colors cursor-pointer"
+                            title="Eliminar esta foto de la galería oficial"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     </div>

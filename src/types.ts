@@ -203,3 +203,43 @@ export interface ClientWorkItem {
   userId?: string;
   userEmail?: string;
 }
+
+export type TournamentPhotoCategory = 
+  | TournamentCategory 
+  | 'Inauguración' 
+  | 'Premiación' 
+  | 'Mejores Momentos' 
+  | 'Hinchada y Familias'
+  | 'General';
+
+export const TOURNAMENT_PHOTO_CATEGORIES = [
+  'Todos',
+  'Sub-15',
+  'Sub-13',
+  'Sub-11',
+  'Sub-9',
+  'Sub-7',
+  'Premiación',
+  'Mejores Momentos',
+  'Inauguración',
+  'Hinchada y Familias',
+  'General'
+] as const;
+
+export interface TournamentPhoto {
+  id: string;
+  title: string;
+  caption?: string;
+  imageUrl: string;
+  thumbnailUrl?: string;
+  category: string;
+  jornada?: string;
+  matchId?: string;
+  teamName?: string;
+  academyId?: string;
+  likesCount: number;
+  likedBy?: string[];
+  tags?: string[];
+  createdAt: string;
+  featured?: boolean;
+}

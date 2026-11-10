@@ -11,7 +11,7 @@ import { MatchDetailView } from './views/MatchDetailView';
 import { QuinielaView } from './views/QuinielaView';
 import { ClientGalleryView } from './views/ClientGalleryView';
 import { ProductQuoteModal } from './components/ProductQuoteModal';
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, QuinielaEntry, ClientWorkItem } from './types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, QuinielaEntry, ClientWorkItem, TournamentPhoto } from './types';
 import { 
   getProducts, 
   getMatches, 
@@ -21,6 +21,7 @@ import {
   getSettings, 
   getQuinielas,
   getClientWorks,
+  getTournamentPhotos,
   formatWhatsAppLink,
   subscribeProducts,
   subscribeMatches,
@@ -30,6 +31,7 @@ import {
   subscribeSettings,
   subscribeQuinielas,
   subscribeClientWorks,
+  subscribeTournamentPhotos,
   seedInitialFirestoreData
 } from './services/storage';
 import { AuthProvider } from './services/authContext';
@@ -66,6 +68,7 @@ function AppContent() {
   const [settings, setSettings] = useState<AppSettings>(getSettings());
   const [quinielas, setQuinielas] = useState<QuinielaEntry[]>(getQuinielas());
   const [clientWorks, setClientWorks] = useState<ClientWorkItem[]>(getClientWorks());
+  const [tournamentPhotos, setTournamentPhotos] = useState<TournamentPhoto[]>(getTournamentPhotos());
   const [quoteProduct, setQuoteProduct] = useState<Product | null>(null);
 
   // Active selected match object (if any)
@@ -81,6 +84,7 @@ function AppContent() {
     setSettings(getSettings());
     setQuinielas(getQuinielas());
     setClientWorks(getClientWorks());
+    setTournamentPhotos(getTournamentPhotos());
   };
 
   useEffect(() => {
@@ -133,6 +137,8 @@ function AppContent() {
         setQuinielas(getQuinielas());
       } else if (key === 'emiliatex_client_works_v1') {
         setClientWorks(getClientWorks());
+      } else if (key === 'emiliatex_tournament_photos_v1') {
+        setTournamentPhotos(getTournamentPhotos());
       } else {
         loadData();
       }
@@ -148,6 +154,7 @@ function AppContent() {
     const unsubSettings = subscribeSettings((s) => setSettings(s));
     const unsubQuinielas = subscribeQuinielas((q) => setQuinielas(q));
     const unsubClientWorks = subscribeClientWorks((works) => setClientWorks(works));
+    const unsubTournamentPhotos = subscribeTournamentPhotos((photos) => setTournamentPhotos(photos));
 
     // Attempt seed to populate Firestore if collections are blank
     seedInitialFirestoreData().catch(() => {});
@@ -163,6 +170,7 @@ function AppContent() {
       unsubSettings();
       unsubQuinielas();
       unsubClientWorks();
+      unsubTournamentPhotos();
     };
   }, []);
 
@@ -263,6 +271,7 @@ function AppContent() {
             {currentPage === 'gallery' && (
               <ClientGalleryView
                 works={clientWorks}
+                tournamentPhotos={tournamentPhotos}
                 onNavigate={handleNavigate}
                 onSelectProduct={(productName) => {
                   const match = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
@@ -277,6 +286,7 @@ function AppContent() {
                 matches={matches}
                 academies={academies}
                 players={players}
+                photos={tournamentPhotos}
                 onSelectMatch={handleSelectMatch}
                 onNavigate={handleNavigate}
                 onSelectAcademy={handleSelectAcademy}
@@ -301,6 +311,7 @@ function AppContent() {
                 settings={settings}
                 quinielas={quinielas}
                 clientWorks={clientWorks}
+                tournamentPhotos={tournamentPhotos}
                 onRefresh={loadData}
                 initialSection={(initialAdminSection as any) || undefined}
               />

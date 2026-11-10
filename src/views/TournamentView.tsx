@@ -1,17 +1,20 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage } from '../types';
+import { TournamentMatch, Academy, Player, TOURNAMENT_CATEGORIES, TournamentCategory, MATCH_STAGES, MatchStage, TournamentPhoto } from '../types';
 import { NavPage } from '../components/Navbar';
-import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink, FileText, Printer } from 'lucide-react';
-import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas, formatMatchTime } from '../services/storage';
+import { Trophy, Flame, Calendar, MapPin, Award, Users, Shield, Star, ChevronRight, ChevronLeft, Activity, Filter, CheckCircle, CheckCircle2, Sparkles, Clock, Search, Layers, RefreshCw, ExternalLink, FileText, Printer, Camera } from 'lucide-react';
+import { getMatchJornada, getAvailableJornadas, getActiveOrLatestJornada, computeAcademyStandings, recalculateAllStandingsAndQuinielas, formatMatchTime, getTournamentPhotos, subscribeTournamentPhotos } from '../services/storage';
 import { AcademyProfileView } from './AcademyProfileView';
 import { ExportPdfModal } from '../components/ExportPdfModal';
 import { ExportMatchdayPdfModal } from '../components/ExportMatchdayPdfModal';
+import { TournamentSocialGallery } from '../components/TournamentSocialGallery';
+import { UploadTournamentPhotoModal } from '../components/UploadTournamentPhotoModal';
 
 interface TournamentViewProps {
   matches: TournamentMatch[];
   academies: Academy[];
   players: Player[];
+  photos?: TournamentPhoto[];
   initialAcademyId?: string | null;
   onSelectMatch?: (match: TournamentMatch) => void;
   onNavigate?: (page: NavPage) => void;
@@ -22,12 +25,40 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   matches,
   academies,
   players,
+  photos: propPhotos,
   initialAcademyId,
   onSelectMatch,
   onNavigate,
   onSelectAcademy
 }) => {
-  const [activeTab, setActiveTab] = useState<'matches' | 'standings' | 'scorers' | 'academies'>('matches');
+  const [activeTab, setActiveTab] = useState<'matches' | 'standings' | 'scorers' | 'academies' | 'gallery'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'gallery') return 'gallery';
+      if (tabParam === 'standings') return 'standings';
+      if (tabParam === 'scorers') return 'scorers';
+      if (tabParam === 'academies') return 'academies';
+    }
+    return 'matches';
+  });
+
+  // Tournament photos state
+  const [photosList, setPhotosList] = useState<TournamentPhoto[]>(() => propPhotos || getTournamentPhotos());
+  const [isUploadPhotoModalOpen, setIsUploadPhotoModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (propPhotos && propPhotos.length > 0) {
+      setPhotosList(propPhotos);
+    }
+  }, [propPhotos]);
+
+  useEffect(() => {
+    const unsub = subscribeTournamentPhotos((updated) => {
+      setPhotosList(updated);
+    });
+    return () => unsub();
+  }, []);
   
   // Selected academy for official club profile & category player gallery
   const [selectedAcademyId, setSelectedAcademyId] = useState<string | null>(() => {
@@ -545,6 +576,19 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           <Shield className={`w-4 h-4 ${activeTab === 'academies' ? 'text-black' : 'text-amber-400'}`} />
           <span className="sm:hidden">Clubes ({academies.length})</span>
           <span className="hidden sm:inline">Academias ({academies.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('gallery')}
+          className={`flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            activeTab === 'gallery'
+              ? 'neu-btn-gold text-black font-extrabold shadow-md'
+              : 'neu-btn-dark text-slate-300 hover:text-white'
+          }`}
+        >
+          <Camera className={`w-4 h-4 ${activeTab === 'gallery' ? 'text-black' : 'text-amber-400'}`} />
+          <span className="sm:hidden">Galería ({photosList.length})</span>
+          <span className="hidden sm:inline">Galería Oficial ({photosList.length})</span>
         </button>
 
         <div className="flex items-center gap-2 ml-auto flex-wrap">
@@ -1514,6 +1558,16 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         </div>
       )}
 
+      {/* TAB 5: TOURNAMENT SOCIAL GALLERY */}
+      {activeTab === 'gallery' && (
+        <div className="space-y-6">
+          <TournamentSocialGallery
+            photos={photosList}
+            onUploadClick={() => setIsUploadPhotoModalOpen(true)}
+          />
+        </div>
+      )}
+
       {/* MODAL OFICIAL PARA EXPORTAR HISTORIAL Y CRUCES EN PDF */}
       <ExportPdfModal
         isOpen={isExportPdfOpen}
@@ -1532,6 +1586,16 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         players={players}
         defaultJornada={exportMatchdayJornada}
         defaultCategory={matchCategoryFilter !== 'all' ? matchCategoryFilter : 'all'}
+      />
+
+      {/* MODAL PARA SUBIR FOTOGRAFÍAS A FIREBASE STORAGE */}
+      <UploadTournamentPhotoModal
+        isOpen={isUploadPhotoModalOpen}
+        onClose={() => setIsUploadPhotoModalOpen(false)}
+        academies={academies}
+        onSuccess={(newPhoto) => {
+          setPhotosList(prev => [newPhoto, ...prev.filter(p => p.id !== newPhoto.id)]);
+        }}
       />
 
     </div>

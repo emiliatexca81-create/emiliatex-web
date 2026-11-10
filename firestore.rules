@@ -220,6 +220,22 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(quinielaId);
     }
 
+    function isValidTournamentPhoto(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.imageUrl is string && data.imageUrl.size() > 0 && data.imageUrl.size() <= 500000 &&
+             (!('caption' in data) || (data.caption is string && data.caption.size() <= 2000)) &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+             (!('jornada' in data) || (data.jornada is string && data.jornada.size() <= 100)) &&
+             (!('teamName' in data) || (data.teamName is string && data.teamName.size() <= 150)) &&
+             (!('academyId' in data) || (data.academyId is string && data.academyId.size() <= 128)) &&
+             (!('matchId' in data) || (data.matchId is string && data.matchId.size() <= 128)) &&
+             (!('likesCount' in data) || data.likesCount is number) &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 30)) &&
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 60)) &&
+             (!('featured' in data) || data.featured is bool);
+    }
+
     // 9. Client Works (Gallery) - Public read, Owner or Admin update/delete
     match /client_works/{workId} {
       allow read: if true;
@@ -234,6 +250,21 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(workId) && isValidClientWork(incoming());
       allow update: if isWorkOwner(existing()) && isValidId(workId) && isValidClientWork(incoming());
       allow delete: if isWorkOwner(existing()) && isValidId(workId);
+    }
+
+    // 11. Tournament Photos (Social Gallery) - Public read, Admin write, Public likes
+    match /tournament_photos/{photoId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(photoId) && isValidTournamentPhoto(incoming());
+      allow update: if (isAdmin() || (isValidTournamentPhoto(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'likedBy']))) && isValidId(photoId);
+      allow delete: if isAdmin() && isValidId(photoId);
+    }
+
+    match /tournamentPhotos/{photoId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(photoId) && isValidTournamentPhoto(incoming());
+      allow update: if (isAdmin() || (isValidTournamentPhoto(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'likedBy']))) && isValidId(photoId);
+      allow delete: if isAdmin() && isValidId(photoId);
     }
   }
 }

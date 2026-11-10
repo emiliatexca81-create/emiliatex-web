@@ -1,4 +1,4 @@
-import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, ClientWorkItem } from '../types';
+import { Product, TournamentMatch, Player, Academy, OrderQuotation, AppSettings, ClientWorkItem, TournamentPhoto } from '../types';
 
 export const initialSettings: AppSettings = {
   whatsappNumber: '573124567890',
@@ -1243,6 +1243,113 @@ export const initialClientWorks: ClientWorkItem[] = [
     technique: 'Sublimado Flúor Neón • Acolchado de Alta Densidad en Codos',
     tags: ['Portero', 'Acolchado Ergonómico', 'Colores Neón'],
     featured: true
+  }
+];
+
+export const initialTournamentPhotos: TournamentPhoto[] = [
+  {
+    id: 'tp-1',
+    title: 'Postal de Oro: Gran Final Sub-15',
+    caption: '¡Instante cumbre del Torneo Élite EMILIATEX! Los muchachos de Deportivo Emiliatex FC y Real Élite disputando cada balón con el alma en la cancha principal.',
+    imageUrl: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=1200&auto=format&fit=crop&q=85',
+    category: 'Sub-15',
+    jornada: 'Gran Final',
+    teamName: 'Deportivo Emiliatex FC',
+    likesCount: 142,
+    tags: ['#TorneoElite', '#Sub15', '#GranFinal', '#PasionFutbolera'],
+    createdAt: '2026-10-18T16:30:00Z',
+    featured: true
+  },
+  {
+    id: 'tp-2',
+    title: 'Volada Espectacular en Semifinales',
+    caption: 'La tapada de la jornada por el guardameta Mateo Rincón en la tanda de penales. Seguridad total bajo los tres palos.',
+    imageUrl: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&auto=format&fit=crop&q=85',
+    category: 'Mejores Momentos',
+    jornada: 'Semifinal',
+    teamName: 'Academia Real Élite',
+    likesCount: 98,
+    tags: ['#AtajadaDelDia', '#Arquero', '#Semifinales', '#GuantesDeOro'],
+    createdAt: '2026-10-17T11:45:00Z',
+    featured: true
+  },
+  {
+    id: 'tp-3',
+    title: 'Desfile Inaugural con Dotación Oficial',
+    caption: 'Ceremonia de apertura con las 12 delegaciones luciendo sus equipaciones de alta confección EMILIATEX. ¡Una fiesta deportiva inolvidable!',
+    imageUrl: 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=1200&auto=format&fit=crop&q=85',
+    category: 'Inauguración',
+    jornada: 'Inauguración',
+    teamName: 'Todas las Delegaciones',
+    likesCount: 185,
+    tags: ['#InauguracionOficial', '#EmiliatexUniforms', '#PasionDeportiva'],
+    createdAt: '2026-10-10T09:00:00Z',
+    featured: true
+  },
+  {
+    id: 'tp-4',
+    title: 'Celebración Eufórica en la Semillero Sub-9',
+    caption: 'La emoción pura de los más pequeños tras anotar el gol de la clasificación. Sonrisas y sueños en cada jugada.',
+    imageUrl: 'https://images.unsplash.com/photo-1517466787929-bc90951d0974?w=1200&auto=format&fit=crop&q=85',
+    category: 'Sub-9',
+    jornada: 'Jornada 3',
+    teamName: 'Titanes Sport Academy',
+    likesCount: 120,
+    tags: ['#Sub9', '#Semillero', '#Golazo', '#FutbolBase'],
+    createdAt: '2026-10-15T15:20:00Z',
+    featured: false
+  },
+  {
+    id: 'tp-5',
+    title: 'Entrega de Trofeos y Botín de Oro',
+    caption: 'Premiación oficial a los campeones y máximos artilleros del torneo. Felicitaciones a todos por el juego limpio y entrega.',
+    imageUrl: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=1200&auto=format&fit=crop&q=85',
+    category: 'Premiación',
+    jornada: 'Gran Final',
+    teamName: 'Campeones & Cuadro de Honor',
+    likesCount: 210,
+    tags: ['#Premiacion', '#Campeones', '#CopaEmiliatex', '#FairPlay'],
+    createdAt: '2026-10-18T18:00:00Z',
+    featured: true
+  },
+  {
+    id: 'tp-6',
+    title: 'Duelo Táctico en el Mediocampo Sub-13',
+    caption: 'Gran intensidad física y técnica entre Atlético Dorado y Rayos de Oriente. Los chicos demostraron talento de primera categoría.',
+    imageUrl: 'https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=1200&auto=format&fit=crop&q=85',
+    category: 'Sub-13',
+    jornada: 'Jornada 2',
+    teamName: 'Atlético Dorado',
+    likesCount: 76,
+    tags: ['#Sub13', '#TalentoJoven', '#Jornada2'],
+    createdAt: '2026-10-14T14:10:00Z',
+    featured: false
+  },
+  {
+    id: 'tp-7',
+    title: 'La Hinchada y Familiares en las Tribunas',
+    caption: 'El apoyo incondicional de los padres y familiares que llenan las gradas de alegría, banderas y cánticos cada fin de semana.',
+    imageUrl: 'https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=1200&auto=format&fit=crop&q=85',
+    category: 'Hinchada y Familias',
+    jornada: 'Jornada 4',
+    teamName: 'Tribuna Familiar',
+    likesCount: 164,
+    tags: ['#Hinchada', '#FamiliaFutbol', '#TribunaDeportiva'],
+    createdAt: '2026-10-16T17:30:00Z',
+    featured: false
+  },
+  {
+    id: 'tp-8',
+    title: 'Charla Técnica Previa al Pitazo Inicial',
+    caption: 'Instrucciones tácticas y motivación del cuerpo técnico en los camerinos antes de saltar al terreno de juego.',
+    imageUrl: 'https://images.unsplash.com/photo-1529778873920-4da4926a72c2?w=1200&auto=format&fit=crop&q=85',
+    category: 'Mejores Momentos',
+    jornada: 'Cuartos de Final',
+    teamName: 'Deportivo Emiliatex FC',
+    likesCount: 89,
+    tags: ['#CharlaTecnica', '#Enfoque', '#CaminoALaGloria'],
+    createdAt: '2026-10-16T10:15:00Z',
+    featured: false
   }
 ];
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ClientWorkItem, ClientWorkCategory } from '../types';
+import { ClientWorkItem, ClientWorkCategory, TournamentPhoto } from '../types';
 import { NavPage } from '../components/Navbar';
 import { 
   Camera, 
@@ -21,10 +21,12 @@ import {
   Layers,
   ArrowRight
 } from 'lucide-react';
-import { formatWhatsAppLink, getSettings } from '../services/storage';
+import { formatWhatsAppLink, getSettings, getTournamentPhotos, subscribeTournamentPhotos } from '../services/storage';
+import { TournamentSocialGallery } from '../components/TournamentSocialGallery';
 
 interface ClientGalleryViewProps {
   works: ClientWorkItem[];
+  tournamentPhotos?: TournamentPhoto[];
   onNavigate?: (page: NavPage) => void;
   onSelectProduct?: (productName: string) => void;
 }
@@ -41,12 +43,28 @@ const CATEGORY_TABS: { id: 'all' | ClientWorkCategory; label: string; icon: any 
 
 export const ClientGalleryView: React.FC<ClientGalleryViewProps> = ({
   works,
+  tournamentPhotos: propTournamentPhotos,
   onNavigate
 }) => {
+  const [galleryMode, setGalleryMode] = useState<'tournament' | 'clients'>('tournament');
+  const [tournamentPhotosList, setTournamentPhotosList] = useState<TournamentPhoto[]>(() => propTournamentPhotos || getTournamentPhotos());
   const [selectedCategory, setSelectedCategory] = useState<'all' | ClientWorkCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedWorkModal, setSelectedWorkModal] = useState<ClientWorkItem | null>(null);
   const settings = getSettings();
+
+  useEffect(() => {
+    if (propTournamentPhotos) {
+      setTournamentPhotosList(propTournamentPhotos);
+    }
+  }, [propTournamentPhotos]);
+
+  useEffect(() => {
+    const unsub = subscribeTournamentPhotos((updated) => {
+      setTournamentPhotosList(updated);
+    });
+    return () => unsub();
+  }, []);
 
   // Filtered client works
   const filteredWorks = useMemo(() => {
@@ -108,11 +126,68 @@ export const ClientGalleryView: React.FC<ClientGalleryViewProps> = ({
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* HERO BANNER - LUXURY ATELIER SHOWCASE */}
-      <section className="relative rounded-3xl neu-card-gold p-6 sm:p-10 border border-[#D4AF37]/50 shadow-2xl overflow-hidden">
-        {/* Subtle decorative radial gradients */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-[#D4AF37]/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-10 -left-10 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+      {/* TOP MODE TOGGLE: Fotos del Torneo vs Lookbook Uniformes */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-3xl neu-card-gold border border-amber-400/40 bg-gradient-to-r from-[#171824] via-[#241F14] to-[#171824] shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl neu-btn-gold text-black flex items-center justify-center font-black shrink-0 shadow-md">
+            <Camera className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-black font-cinzel text-white">
+              Centro Visual & Galerías Oficiales
+            </h2>
+            <p className="text-xs text-slate-300">
+              Disfruta las postales del Torneo Élite o explora nuestro catálogo de confecciones.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center p-1.5 rounded-2xl neu-pressed bg-black/60 border border-white/10 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setGalleryMode('tournament')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+              galleryMode === 'tournament'
+                ? 'neu-btn-gold text-black shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Trophy className="w-4 h-4" />
+            <span>Fotos Torneo ({tournamentPhotosList.length})</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setGalleryMode('clients')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+              galleryMode === 'clients'
+                ? 'neu-btn-gold text-black shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Shirt className="w-4 h-4" />
+            <span>Lookbook Prendas ({works.length})</span>
+          </button>
+        </div>
+      </div>
+
+      {/* TOURNAMENT SOCIAL GALLERY VIEW */}
+      {galleryMode === 'tournament' && (
+        <TournamentSocialGallery
+          photos={tournamentPhotosList}
+          onUploadClick={() => onNavigate?.('admin')}
+        />
+      )}
+
+      {/* CLIENT UNIFORMS LOOKBOOK VIEW */}
+      {galleryMode === 'clients' && (
+        <>
+          {/* HERO BANNER - LUXURY ATELIER SHOWCASE */}
+          <section className="relative rounded-3xl neu-card-gold p-6 sm:p-10 border border-[#D4AF37]/50 shadow-2xl overflow-hidden">
+            {/* Subtle decorative radial gradients */}
+            <div className="absolute top-0 right-0 w-96 h-96 bg-[#D4AF37]/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-10 -left-10 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative z-10 max-w-3xl space-y-4">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full neu-pressed-gold text-amber-300 text-xs font-mono font-black border border-[#D4AF37]/30 tracking-wider uppercase">
@@ -487,6 +562,8 @@ export const ClientGalleryView: React.FC<ClientGalleryViewProps> = ({
           </div>
         )}
       </AnimatePresence>
+      </>
+      )}
 
     </div>
   );
