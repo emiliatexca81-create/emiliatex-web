@@ -172,6 +172,8 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   // Render a standings table for a specific category championship
   const renderCategoryStandingsTable = (category: TournamentCategory) => {
     const list = getStandingsForCategory(category);
+    // Sub-13 qualifies top 4 (semifinals), all other categories qualify top 8
+    const qualifyingCount = category === 'Sub-13' ? 4 : 8;
 
     return (
       <div key={category} className="rounded-3xl neu-card overflow-hidden shadow-2xl space-y-0 border border-white/5">
@@ -242,12 +244,12 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
               <tbody className="divide-y divide-white/5">
                 {list.map((acad, idx) => {
                   const dg = acad.goalDiff !== undefined ? acad.goalDiff : (acad.goalsFor - acad.goalsAgainst);
-                  const isTopTwo = idx < 2;
+                  const isQualified = idx < qualifyingCount;
                   return (
                     <tr
                       key={acad.id}
                       className={`hover:bg-white/5 transition-colors ${
-                        isTopTwo ? 'bg-amber-400/5' : ''
+                        isQualified ? 'bg-amber-400/5' : ''
                       }`}
                     >
                       <td className="py-3.5 px-4 text-center font-bold">
@@ -255,6 +257,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                           idx === 0 ? 'neu-btn-gold text-black font-black' :
                           idx === 1 ? 'bg-slate-300 text-black font-black neu-card' :
                           idx === 2 ? 'bg-amber-800 text-white font-black neu-card' :
+                          isQualified ? 'bg-amber-400/10 text-amber-300 font-bold border border-amber-400/30' :
                           'neu-pressed text-slate-400'
                         }`}>
                           {idx + 1}
@@ -308,11 +311,15 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         <div className="p-3.5 bg-black/40 border-t border-white/5 flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-[#D4AF37]" />
-            1° y 2° Lugar clasifican a rondas finales de {category}
+            <span className="font-semibold text-slate-200">
+              {category === 'Sub-13'
+                ? '1° al 4° Lugar clasifican a la siguiente fase (Semifinales de Sub-13)'
+                : `1° al 8° Lugar clasifican a la siguiente fase de ${category}`}
+            </span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
-            Fase regular / reclasificación
+            Fase regular / no clasificados
           </span>
         </div>
       </div>

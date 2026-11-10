@@ -507,7 +507,20 @@ export async function generateConfrontationsPDF(
       });
 
       const nextY = (doc as any).lastAutoTable?.finalY;
-      currentY = (typeof nextY === 'number' ? nextY : currentY + 30) + 8;
+      const finalTableY = typeof nextY === 'number' ? nextY : currentY + 30;
+
+      // Qualification footnote
+      const isSub13 = (rep.categoryName || '').toLowerCase().includes('sub-13');
+      const qualNote = isSub13
+        ? '* Clasificación oficial: 1° al 4° Lugar avanzan a la siguiente ronda (Semifinales).'
+        : `* Clasificación oficial: 1° al 8° Lugar avanzan a la siguiente ronda de ${rep.categoryName || 'la categoría'}.`;
+
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(180, 83, 9); // amber tone
+      doc.text(qualNote, margin, finalTableY + 3.5);
+
+      currentY = finalTableY + 8;
     }
 
     // 2. Matches History
