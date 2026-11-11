@@ -135,6 +135,30 @@ export const DEFAULT_ACADEMY_CATEGORIES: TournamentCategory[] = [
   'Sub-15'
 ];
 
+export const PRESET_MATCH_JORNADAS: string[] = [
+  'Jornada 1',
+  'Jornada 2',
+  'Jornada 3',
+  'Jornada 4',
+  'Jornada 5',
+  'Jornada 6',
+  'Jornada 7',
+  'Jornada 8',
+  'Jornada 9',
+  'Jornada 10',
+  'Jornada 11',
+  'Jornada 12',
+  'Jornada 13',
+  'Jornada 14',
+  'Jornada 15',
+  'Jornada 16',
+  'Octavos de Final',
+  'Cuartos de Final',
+  'Semifinales',
+  'Gran Final',
+  'Fase Final'
+];
+
 interface AdminViewProps {
   products: Product[];
   matches: TournamentMatch[];
@@ -2549,11 +2573,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <div>
                 <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                   <span>Jornada del Torneo: <span className="text-amber-400">*</span></span>
-                  <span className="text-[10px] text-amber-300 font-mono">Para filtro por fechas</span>
+                  <span className="text-[10px] text-amber-300 font-mono">Para filtro por fechas (1 al 16 + Finales)</span>
                 </label>
                 <div className="flex gap-2">
                   <select
-                    value={['Jornada 1', 'Jornada 2', 'Jornada 3', 'Jornada 4', 'Jornada 5', 'Jornada 6', 'Jornada 7', 'Jornada 8', 'Fase Final'].includes(matchForm.jornada || 'Jornada 1') ? (matchForm.jornada || 'Jornada 1') : 'custom'}
+                    value={PRESET_MATCH_JORNADAS.includes(matchForm.jornada || 'Jornada 1') ? (matchForm.jornada || 'Jornada 1') : 'custom'}
                     onChange={e => {
                       if (e.target.value !== 'custom') {
                         setMatchForm({ ...matchForm, jornada: e.target.value });
@@ -2561,16 +2585,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     }}
                     className="flex-1 px-4 py-3 rounded-2xl neu-pressed text-amber-300 font-bold text-xs sm:text-sm border border-[#D4AF37]/50 focus:border-[#D4AF37] focus:outline-none transition-all"
                   >
-                    <option value="Jornada 1" className="bg-[#12141f]">Jornada 1</option>
-                    <option value="Jornada 2" className="bg-[#12141f]">Jornada 2</option>
-                    <option value="Jornada 3" className="bg-[#12141f]">Jornada 3</option>
-                    <option value="Jornada 4" className="bg-[#12141f]">Jornada 4</option>
-                    <option value="Jornada 5" className="bg-[#12141f]">Jornada 5</option>
-                    <option value="Jornada 6" className="bg-[#12141f]">Jornada 6</option>
-                    <option value="Jornada 7" className="bg-[#12141f]">Jornada 7</option>
-                    <option value="Jornada 8" className="bg-[#12141f]">Jornada 8</option>
-                    <option value="Fase Final" className="bg-[#12141f]">Fase Final / Eliminatoria</option>
-                    <option value="custom" className="bg-[#12141f]">Personalizada...</option>
+                    <optgroup label="Fase Regular (Jornadas 1 a 16)" className="bg-[#12141f] text-slate-400 font-semibold">
+                      {Array.from({ length: 16 }, (_, i) => `Jornada ${i + 1}`).map(j => (
+                        <option key={j} value={j} className="bg-[#12141f] text-amber-300 font-bold">{j}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Fases Eliminatorias y Finales" className="bg-[#12141f] text-slate-400 font-semibold">
+                      <option value="Octavos de Final" className="bg-[#12141f] text-white">Octavos de Final</option>
+                      <option value="Cuartos de Final" className="bg-[#12141f] text-white">Cuartos de Final</option>
+                      <option value="Semifinales" className="bg-[#12141f] text-white">Semifinales</option>
+                      <option value="Gran Final" className="bg-[#12141f] text-white">Gran Final</option>
+                      <option value="Fase Final" className="bg-[#12141f] text-white">Fase Final / Eliminatoria</option>
+                    </optgroup>
+                    <option value="custom" className="bg-[#12141f] text-slate-300">Personalizada...</option>
                   </select>
                   <input
                     type="text"
