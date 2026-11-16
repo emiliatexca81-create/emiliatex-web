@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Academy, Player, TournamentMatch, TOURNAMENT_CATEGORIES, TournamentCategory } from '../types';
 import { 
@@ -23,17 +23,18 @@ import {
   Sparkles,
   X
 } from 'lucide-react';
-import { formatMatchTime, computeAcademyStandings } from '../services/storage';
+import { formatMatchTime, computeAcademyStandings, getMatchJornada } from '../services/storage';
 
 interface AcademyProfileViewProps {
   academy: Academy;
   allAcademies: Academy[];
   players: Player[];
   matches: TournamentMatch[];
+  initialCategory?: string | null;
   onBack: () => void;
   onSelectPlayer?: (player: Player) => void;
   onSelectMatch?: (match: TournamentMatch) => void;
-  onSelectAcademy?: (academy: Academy) => void;
+  onSelectAcademy?: (academy: Academy, category?: string) => void;
 }
 
 export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
@@ -41,22 +42,71 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
   allAcademies,
   players,
   matches,
+  initialCategory,
   onBack,
   onSelectMatch,
   onSelectAcademy
 }) => {
-  // Categories available for this academy
-  const availableCategories = useMemo(() => {
-    if (academy.categories && academy.categories.length > 0) {
-      return academy.categories;
-    }
-    return [academy.category || 'Sub-15'];
-  }, [academy]);
+  // All matches involving this academy
+  const academyMatches = useMemo(() => {
+    return matches.filter(m => 
+      m.homeAcademyId === academy.id || 
+      m.awayAcademyId === academy.id ||
+      m.homeAcademyName === academy.name ||
+      m.awayAcademyName === academy.name
+    );
+  }, [matches, academy]);
 
-  // Selected category state - default to first available category
+  // All players for this academy
+  const academyPlayers = useMemo(() => {
+    return players.filter(p => p.academyId === academy.id || p.academyName === academy.name);
+  }, [players, academy]);
+
+  // Categories available for this academy (registered categories + any found in matches/players, ordered nicely)
+  const availableCategories = useMemo(() => {
+    const set = new Set<string>();
+    if (academy.categories && academy.categories.length > 0) {
+      academy.categories.forEach(c => set.add(c));
+    } else if (academy.category) {
+      set.add(academy.category);
+    }
+    academyMatches.forEach(m => {
+      if (m.category) set.add(m.category);
+    });
+    academyPlayers.forEach(p => {
+      if (p.category) set.add(p.category);
+    });
+    if (set.size === 0) set.add('Sub-15');
+
+    const orderMap = new Map<string, number>(TOURNAMENT_CATEGORIES.map((c, idx) => [c, idx]));
+    return Array.from(set).sort((a, b) => {
+      const idxA = orderMap.has(a) ? orderMap.get(a)! : 999;
+      const idxB = orderMap.has(b) ? orderMap.get(b)! : 999;
+      return idxA !== idxB ? idxA - idxB : a.localeCompare(b);
+    });
+  }, [academy, academyMatches, academyPlayers]);
+
+  // Selected category state - respects initialCategory (e.g. from Standings table) or defaults to first available
   const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    if (initialCategory && initialCategory !== 'all') return initialCategory;
     return availableCategories[0] || 'Sub-15';
   });
+
+  // Match history filters - defaults to the active category so multi-category clubs don't mix results
+  const [matchCategoryFilter, setMatchCategoryFilter] = useState<string>(() => {
+    if (initialCategory && initialCategory !== 'all') return initialCategory;
+    return availableCategories[0] || 'all';
+  });
+  const [matchStatusFilter, setMatchStatusFilter] = useState<'all' | 'finished' | 'upcoming'>('all');
+
+  useEffect(() => {
+    const nextCat = (initialCategory && initialCategory !== 'all')
+      ? initialCategory
+      : (availableCategories[0] || 'Sub-15');
+    setSelectedCategory(nextCat);
+    setMatchCategoryFilter(nextCat);
+    setMatchStatusFilter('all');
+  }, [academy.id, initialCategory]);
 
   // Search and position filter in gallery
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,10 +117,69 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
   const [selectedPlayerModal, setSelectedPlayerModal] = useState<Player | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // All players for this academy
-  const academyPlayers = useMemo(() => {
-    return players.filter(p => p.academyId === academy.id || p.academyName === academy.name);
-  }, [players, academy]);
+  // Filtered matches for this academy by selected match category & status, sorted chronologically/by jornada
+  const filteredAcademyMatches = useMemo(() => {
+    const filtered = academyMatches.filter(m => {
+      if (matchCategoryFilter !== 'all') {
+        const matchCat = m.category || 'Sub-15';
+        if (matchCat !== matchCategoryFilter) return false;
+      }
+      if (matchStatusFilter === 'finished' && m.status !== 'finished') return false;
+      if (matchStatusFilter === 'upcoming' && m.status === 'finished') return false;
+      return true;
+    });
+
+    return [...filtered].sort((a, b) => {
+      const jA = parseInt(getMatchJornada(a).replace(/[^0-9]/g, ''), 10);
+      const jB = parseInt(getMatchJornada(b).replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(jA) && !isNaN(jB) && jA !== jB) {
+        return jA - jB;
+      }
+      return `${a.date || ''} ${a.time || ''}`.localeCompare(`${b.date || ''} ${b.time || ''}`);
+    });
+  }, [academyMatches, matchCategoryFilter, matchStatusFilter]);
+
+  // Quick W-D-L record summary for currently filtered matches
+  const matchHistorySummary = useMemo(() => {
+    let won = 0;
+    let drawn = 0;
+    let lost = 0;
+    let finishedCount = 0;
+
+    filteredAcademyMatches.forEach(m => {
+      if (m.status !== 'finished') return;
+      finishedCount++;
+      const isHome = m.homeAcademyId === academy.id || m.homeAcademyName === academy.name;
+      const myScore = isHome ? (m.homeScore ?? 0) : (m.awayScore ?? 0);
+      const oppScore = isHome ? (m.awayScore ?? 0) : (m.homeScore ?? 0);
+      if (myScore > oppScore) won++;
+      else if (myScore === oppScore) drawn++;
+      else lost++;
+    });
+
+    return {
+      total: filteredAcademyMatches.length,
+      finishedCount,
+      won,
+      drawn,
+      lost
+    };
+  }, [filteredAcademyMatches, academy]);
+
+  // Helper to sync category across profile sections & URL query param
+  const handleSelectCategory = (cat: string) => {
+    setSelectedCategory(cat);
+    setMatchCategoryFilter(cat);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (cat === 'all') {
+        params.delete('category');
+      } else {
+        params.set('category', cat);
+      }
+      window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+    }
+  };
 
   // Filter players by selected category
   const categoryPlayers = useMemo(() => {
@@ -80,7 +189,7 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
 
   // Further filter by search, position, and sort
   const filteredAndSortedPlayers = useMemo(() => {
-    let result = categoryPlayers.filter(p => {
+    const result = categoryPlayers.filter(p => {
       const matchSearch = searchQuery.trim() === '' || 
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(p.number).includes(searchQuery.trim());
@@ -99,16 +208,6 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
 
     return result;
   }, [categoryPlayers, searchQuery, positionFilter, sortBy]);
-
-  // Matches involving this academy
-  const academyMatches = useMemo(() => {
-    return matches.filter(m => 
-      m.homeAcademyId === academy.id || 
-      m.awayAcademyId === academy.id ||
-      m.homeAcademyName === academy.name ||
-      m.awayAcademyName === academy.name
-    );
-  }, [matches, academy]);
 
   // Dynamic official stats for this academy according to the selected category (never mixes categories)
   const currentCategoryStats = useMemo(() => {
@@ -335,25 +434,25 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-[#D4AF37]" />
             <h2 className="text-sm sm:text-base font-extrabold text-white uppercase tracking-wider">
-              Seleccionar Categoría del Plantel
+              Seleccionar Categoría de la Academia
             </h2>
           </div>
           <span className="text-xs text-slate-400 font-medium">
-            Explora la nómina oficial y los perfiles de los jugadores por categoría
+            Filtra estadísticas, plantel oficial e historial de partidos por categoría
           </span>
         </div>
 
         {/* Category Pills */}
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1">
           <button
-            onClick={() => setSelectedCategory('all')}
+            onClick={() => handleSelectCategory('all')}
             className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
               selectedCategory === 'all'
                 ? 'neu-btn-gold text-black shadow-lg scale-105'
                 : 'neu-pressed text-slate-300 hover:text-white'
             }`}
           >
-            <span>Todos los Planteles</span>
+            <span>Todas las Categorías</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-extrabold ${
               selectedCategory === 'all' ? 'bg-black/20 text-black' : 'bg-white/10 text-amber-400'
             }`}>
@@ -367,7 +466,7 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
             return (
               <button
                 key={cat}
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => handleSelectCategory(cat)}
                 className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
                   isSelected
                     ? 'neu-btn-gold text-black shadow-lg scale-105'
@@ -597,26 +696,117 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
         )}
       </div>
 
-      {/* MATCHES & FIXTURE OF THE ACADEMY */}
-      {academyMatches.length > 0 && (
-        <div className="rounded-3xl neu-card p-6 space-y-4 border border-white/5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-[#D4AF37]" />
-              <h3 className="text-base sm:text-lg font-black font-cinzel text-white">
-                Partidos & Fixture de {academy.name}
-              </h3>
+      {/* MATCHES & FIXTURE OF THE ACADEMY (FILTERED BY CATEGORY) */}
+      <div className="rounded-3xl neu-card p-5 sm:p-6 space-y-5 border border-white/5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl neu-pressed-gold text-[#D4AF37] flex items-center justify-center shrink-0">
+              <Calendar className="w-5 h-5" />
             </div>
-            <span className="text-xs text-slate-400 font-mono">
-              {academyMatches.length} partidos programados
-            </span>
+            <div>
+              <h3 className="text-base sm:text-lg font-black font-cinzel text-white flex flex-wrap items-center gap-2">
+                <span>Historial de Partidos & Fixture</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 font-mono text-xs font-bold">
+                  {matchCategoryFilter === 'all' ? 'Todas las Categorías' : matchCategoryFilter}
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {matchHistorySummary.total} {matchHistorySummary.total === 1 ? 'partido' : 'partidos'}
+                {matchHistorySummary.finishedCount > 0 && (
+                  <span className="ml-2 font-mono text-slate-300">
+                    • Balance: <strong className="text-emerald-400">{matchHistorySummary.won}G</strong> - <strong className="text-amber-300">{matchHistorySummary.drawn}E</strong> - <strong className="text-rose-400">{matchHistorySummary.lost}P</strong>
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
 
+          {/* Status quick filter */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {([
+              { id: 'all', label: 'Todos' },
+              { id: 'finished', label: 'Finalizados' },
+              { id: 'upcoming', label: 'Próximos / En Vivo' }
+            ] as const).map(st => (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => setMatchStatusFilter(st.id)}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                  matchStatusFilter === st.id
+                    ? 'neu-btn-gold text-black font-black shadow'
+                    : 'neu-pressed text-slate-400 hover:text-white'
+                }`}
+              >
+                {st.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Match History Category Filter Bar */}
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
+            <Filter className="w-3.5 h-3.5 text-[#D4AF37]" />
+            <span>Categoría:</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setMatchCategoryFilter('all')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              matchCategoryFilter === 'all'
+                ? 'neu-btn-gold text-black font-black shadow-md'
+                : 'neu-pressed text-slate-300 hover:text-white'
+            }`}
+          >
+            <span>Todas</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold ${
+              matchCategoryFilter === 'all' ? 'bg-black/20 text-black' : 'bg-white/10 text-amber-400'
+            }`}>
+              {academyMatches.length}
+            </span>
+          </button>
+
+          {availableCategories.map(cat => {
+            const countInCat = academyMatches.filter(m => (m.category || 'Sub-15') === cat).length;
+            const isSelected = matchCategoryFilter === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setMatchCategoryFilter(cat)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'neu-btn-gold text-black font-black shadow-md'
+                    : 'neu-pressed text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>{cat}</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold ${
+                  isSelected ? 'bg-black/20 text-black' : 'bg-white/10 text-amber-400'
+                }`}>
+                  {countInCat}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {filteredAcademyMatches.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {academyMatches.map(m => {
+            {filteredAcademyMatches.map(m => {
               const isHome = m.homeAcademyId === academy.id || m.homeAcademyName === academy.name;
               const isFinished = m.status === 'finished';
               const isLive = m.status === 'live';
+              const myScore = isHome ? (m.homeScore ?? 0) : (m.awayScore ?? 0);
+              const oppScore = isHome ? (m.awayScore ?? 0) : (m.homeScore ?? 0);
+              const resultBadge = isFinished
+                ? myScore > oppScore
+                  ? { label: 'V', title: 'Victoria', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' }
+                  : myScore === oppScore
+                    ? { label: 'E', title: 'Empate', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' }
+                    : { label: 'D', title: 'Derrota', cls: 'bg-rose-500/20 text-rose-300 border-rose-500/40' }
+                : null;
 
               return (
                 <div
@@ -624,9 +814,19 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
                   onClick={() => onSelectMatch && onSelectMatch(m)}
                   className="rounded-2xl neu-card p-4 space-y-3 border border-white/5 hover:border-[#D4AF37]/40 transition-all cursor-pointer group"
                 >
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 border-b border-white/5 pb-2">
-                    <span className="font-mono text-amber-300 font-bold">{m.category || 'Sub-15'} • {m.phase}</span>
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 border-b border-white/5 pb-2">
+                    <span className="font-mono text-amber-300 font-bold truncate">
+                      {m.category || 'Sub-15'} • {getMatchJornada(m)}{m.phase ? ` • ${m.phase}` : ''}
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {resultBadge && (
+                        <span
+                          title={resultBadge.title}
+                          className={`w-5 h-5 rounded-md border text-[10px] font-black flex items-center justify-center ${resultBadge.cls}`}
+                        >
+                          {resultBadge.label}
+                        </span>
+                      )}
                       {isLive && (
                         <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-bold animate-pulse">
                           EN VIVO
@@ -689,8 +889,36 @@ export const AcademyProfileView: React.FC<AcademyProfileViewProps> = ({
               );
             })}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="rounded-2xl neu-pressed p-8 text-center space-y-3 border border-dashed border-white/10">
+            <Calendar className="w-8 h-8 text-slate-500 mx-auto" />
+            <div className="space-y-1">
+              <p className="text-sm font-bold text-white">
+                {matchCategoryFilter === 'all'
+                  ? `No hay partidos registrados para ${academy.name}`
+                  : `No hay partidos ${matchStatusFilter === 'finished' ? 'finalizados' : matchStatusFilter === 'upcoming' ? 'próximos' : 'registrados'} en ${matchCategoryFilter}`}
+              </p>
+              <p className="text-xs text-slate-400">
+                {academyMatches.length > 0 && matchCategoryFilter !== 'all'
+                  ? `Esta academia tiene ${academyMatches.length} partido(s) en el torneo. Puedes ver todas sus categorías o cambiar el filtro.`
+                  : 'Los encuentros aparecerán aquí automáticamente al programarse en el calendario.'}
+              </p>
+            </div>
+            {(matchCategoryFilter !== 'all' || matchStatusFilter !== 'all') && academyMatches.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMatchCategoryFilter('all');
+                  setMatchStatusFilter('all');
+                }}
+                className="px-4 py-2 rounded-xl neu-btn-gold text-black text-xs font-bold cursor-pointer"
+              >
+                Ver partidos de todas las categorías ({academyMatches.length})
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* PLAYER MODAL (Ficha Técnica Oficial del Jugador) */}
       <AnimatePresence>

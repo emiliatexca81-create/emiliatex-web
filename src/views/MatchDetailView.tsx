@@ -24,7 +24,7 @@ interface MatchDetailViewProps {
   players: Player[];
   onBack: () => void;
   onSelectMatch?: (match: TournamentMatch) => void;
-  onSelectAcademy?: (academy: Academy) => void;
+  onSelectAcademy?: (academy: Academy, category?: string) => void;
 }
 
 export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
@@ -217,9 +217,9 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
           <div className="grid grid-cols-7 items-center gap-1.5 sm:gap-6 text-center">
             {/* Home Team */}
             <div 
-              onClick={() => homeAcademy && onSelectAcademy && onSelectAcademy(homeAcademy)}
+              onClick={() => homeAcademy && onSelectAcademy && onSelectAcademy(homeAcademy, match.category)}
               className={`col-span-3 flex flex-col items-center space-y-2 sm:space-y-3 ${homeAcademy ? 'cursor-pointer group' : ''}`}
-              title={homeAcademy ? `Ver perfil y jugadores de ${homeAcademy.name}` : undefined}
+              title={homeAcademy ? `Ver perfil y partidos de ${homeAcademy.name} (${match.category || 'Torneo'})` : undefined}
             >
               <div className="relative">
                 <div className="w-14 h-14 sm:w-28 sm:h-28 rounded-full p-0.5 sm:p-1 bg-gradient-to-tr from-[#D4AF37] to-amber-200 shadow-xl overflow-hidden group-hover:scale-105 transition-transform">
@@ -284,9 +284,9 @@ export const MatchDetailView: React.FC<MatchDetailViewProps> = ({
 
             {/* Away Team */}
             <div 
-              onClick={() => awayAcademy && onSelectAcademy && onSelectAcademy(awayAcademy)}
+              onClick={() => awayAcademy && onSelectAcademy && onSelectAcademy(awayAcademy, match.category)}
               className={`col-span-3 flex flex-col items-center space-y-2 sm:space-y-3 ${awayAcademy ? 'cursor-pointer group' : ''}`}
-              title={awayAcademy ? `Ver perfil y jugadores de ${awayAcademy.name}` : undefined}
+              title={awayAcademy ? `Ver perfil y partidos de ${awayAcademy.name} (${match.category || 'Torneo'})` : undefined}
             >
               <div className="relative">
                 <div className="w-14 h-14 sm:w-28 sm:h-28 rounded-full p-0.5 sm:p-1 bg-gradient-to-tr from-slate-400 to-slate-100 shadow-xl overflow-hidden group-hover:scale-105 transition-transform">

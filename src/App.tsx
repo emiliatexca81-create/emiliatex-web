@@ -189,11 +189,16 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSelectAcademy = (academy: Academy) => {
+  const handleSelectAcademy = (academy: Academy, category?: string) => {
     setSelectedMatchId(null);
     setCurrentPage('tournament');
-    const newUrl = `${window.location.pathname}?page=tournament&academyId=${academy.id}`;
-    window.history.pushState(null, '', newUrl);
+    const params = new URLSearchParams();
+    params.set('page', 'tournament');
+    params.set('academyId', academy.id);
+    if (category) {
+      params.set('category', category);
+    }
+    window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

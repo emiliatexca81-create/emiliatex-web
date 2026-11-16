@@ -18,7 +18,7 @@ interface TournamentViewProps {
   initialAcademyId?: string | null;
   onSelectMatch?: (match: TournamentMatch) => void;
   onNavigate?: (page: NavPage) => void;
-  onSelectAcademy?: (academy: Academy) => void;
+  onSelectAcademy?: (academy: Academy, category?: string) => void;
 }
 
 export const TournamentView: React.FC<TournamentViewProps> = ({
@@ -69,6 +69,25 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     }
     return null;
   });
+
+  const [selectedAcademyCategory, setSelectedAcademyCategory] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('category');
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedAcademyId(params.get('academyId'));
+      setSelectedAcademyCategory(params.get('category'));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const selectedAcademy = useMemo(() => {
     if (!selectedAcademyId) return null;
@@ -266,16 +285,18 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                       <td 
                         onClick={() => {
                           setSelectedAcademyId(acad.id);
+                          setSelectedAcademyCategory(category);
                           if (typeof window !== 'undefined') {
                             const params = new URLSearchParams(window.location.search);
                             params.set('page', 'tournament');
                             params.set('academyId', acad.id);
+                            params.set('category', category);
                             window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
                           }
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
                         className="py-3.5 px-4 font-bold text-white flex items-center gap-3 cursor-pointer group hover:text-amber-300 transition-colors"
-                        title={`Ver perfil oficial y galería de jugadores de ${acad.name}`}
+                        title={`Ver historial de partidos y plantel de ${acad.name} en ${category}`}
                       >
                         <div className="w-8 h-8 rounded-xl neu-card p-1 flex items-center justify-center shrink-0 border border-amber-400/30 group-hover:border-[#D4AF37] group-hover:scale-105 transition-all">
                           <img src={acad.logo} alt={acad.name} className="w-full h-full object-contain rounded" />
@@ -334,11 +355,14 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         allAcademies={academies}
         players={players}
         matches={matches}
+        initialCategory={selectedAcademyCategory}
         onBack={() => {
           setSelectedAcademyId(null);
+          setSelectedAcademyCategory(null);
           if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
             params.delete('academyId');
+            params.delete('category');
             const newQuery = params.toString();
             const newUrl = newQuery ? `${window.location.pathname}?${newQuery}` : window.location.pathname;
             window.history.pushState(null, '', newUrl);
@@ -346,12 +370,18 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onSelectMatch={onSelectMatch}
-        onSelectAcademy={(acad) => {
+        onSelectAcademy={(acad, category) => {
           setSelectedAcademyId(acad.id);
+          setSelectedAcademyCategory(category || null);
           if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
             params.set('page', 'tournament');
             params.set('academyId', acad.id);
+            if (category) {
+              params.set('category', category);
+            } else {
+              params.delete('category');
+            }
             window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
           }
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1492,11 +1522,18 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 }}
                 whileHover={{ y: -4, transition: { duration: 0.2 } }}
                 onClick={() => {
+                  const preCat = academyCategoryFilter !== 'all' ? academyCategoryFilter : null;
                   setSelectedAcademyId(acad.id);
+                  setSelectedAcademyCategory(preCat);
                   if (typeof window !== 'undefined') {
                     const params = new URLSearchParams(window.location.search);
                     params.set('page', 'tournament');
                     params.set('academyId', acad.id);
+                    if (preCat) {
+                      params.set('category', preCat);
+                    } else {
+                      params.delete('category');
+                    }
                     window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
                   }
                   window.scrollTo({ top: 0, behavior: 'smooth' });
